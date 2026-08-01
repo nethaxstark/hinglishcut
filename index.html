@@ -1,0 +1,2037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HinglishCut — AI Hinglish Subtitle Maker for Indian Reels</title>
+  <meta name="description" content="Free AI tool to auto-generate Hinglish subtitles for your Hindi reels. Transcribe audio with Groq Whisper, convert to Hinglish with DeepSeek. Animate, style and export.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Poppins:wght@600;700;800;900&family=Baloo+2:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- No ffmpeg needed — using Web Audio API for audio extraction -->
+  <style>
+  /* ── RESET ───────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── TOKENS ──────────────────────────────────────────── */
+  :root {
+    --bg:     #07070F;
+    --bg2:    #0D0D1C;
+    --bg3:    #131326;
+    --surf:   rgba(255,255,255,0.04);
+    --surf2:  rgba(255,255,255,0.07);
+    --bdr:    rgba(255,255,255,0.08);
+    --bdr2:   rgba(255,255,255,0.14);
+    --or1:    #FF6B35;
+    --or2:    #F7931E;
+    --grad:   linear-gradient(135deg,#FF6B35,#F7931E);
+    --glow:   rgba(255,107,53,0.28);
+    --txt:    #F1F5F9;
+    --txt2:   #94A3B8;
+    --txt3:   #475569;
+    --ok:     #10B981;
+    --err:    #EF4444;
+    --warn:   #F59E0B;
+    --r:      16px;
+    --rsm:    10px;
+    --rlg:    24px;
+  }
+
+  html { font-size: 16px; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--txt);
+    min-height: 100vh;
+    overflow-x: hidden;
+    line-height: 1.5;
+  }
+
+  body::before {
+    content: ''; position: fixed; top: -250px; left: -200px;
+    width: 700px; height: 700px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,107,53,0.07) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: ''; position: fixed; bottom: -200px; right: -150px;
+    width: 600px; height: 600px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,58,237,0.07) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── SCREENS ─────────────────────────────────────────── */
+  .screen { display: none; min-height: 100vh; position: relative; z-index: 1; flex-direction: column; }
+  .screen.active { display: flex; }
+
+  /* ── BASE COMPONENTS ─────────────────────────────────── */
+  .glass {
+    background: var(--surf);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--bdr);
+    border-radius: var(--r);
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: var(--rsm);
+    font-family: 'Inter', sans-serif; font-size: 0.875rem;
+    font-weight: 600; cursor: pointer; border: none;
+    transition: all 0.2s ease; text-decoration: none; white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--grad); color: #fff;
+    box-shadow: 0 4px 18px var(--glow);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px var(--glow); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-ghost {
+    background: var(--surf); color: var(--txt2); border: 1px solid var(--bdr);
+  }
+  .btn-ghost:hover { background: var(--surf2); color: var(--txt); border-color: var(--bdr2); }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 12px; border-radius: 100px;
+    font-size: 0.72rem; font-weight: 700;
+  }
+  .badge-or { background: rgba(255,107,53,0.14); color: var(--or1); border: 1px solid rgba(255,107,53,0.22); }
+  .badge-ok { background: rgba(16,185,129,0.14);  color: var(--ok);  border: 1px solid rgba(16,185,129,0.22); }
+
+  input, textarea {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--bdr);
+    border-radius: var(--rsm); color: var(--txt);
+    font-family: 'Inter', sans-serif; font-size: 0.9rem;
+    padding: 12px 16px; width: 100%; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  input:focus, textarea:focus {
+    border-color: var(--or1); box-shadow: 0 0 0 3px rgba(255,107,53,0.1);
+  }
+  input::placeholder, textarea::placeholder { color: var(--txt3); }
+  label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--txt2); margin-bottom: 8px; }
+  .fgrp { margin-bottom: 20px; }
+
+  /* ── NAVBAR ──────────────────────────────────────────── */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; border-bottom: 1px solid var(--bdr);
+    background: rgba(7,7,15,0.88); backdrop-filter: blur(20px);
+    position: sticky; top: 0; z-index: 100; flex-shrink: 0;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'Poppins', sans-serif; font-size: 1.2rem; font-weight: 800;
+  }
+  .nav-logo {
+    width: 34px; height: 34px; background: var(--grad);
+    border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 1rem;
+  }
+  .brand-g { background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+  /* ═══════════════════════════════════════════════════════
+     SCREEN 1 — SETUP
+  ══════════════════════════════════════════════════════ */
+  #scr-setup {
+    align-items: center; justify-content: center; padding: 48px 20px; gap: 44px;
+  }
+
+  .hero { text-align: center; max-width: 620px; }
+  .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; margin-bottom: 24px;
+    padding: 6px 18px; background: rgba(255,107,53,0.1);
+    border: 1px solid rgba(255,107,53,0.22); border-radius: 100px;
+    font-size: 0.78rem; font-weight: 700; color: var(--or1);
+  }
+  .hero h1 {
+    font-family: 'Poppins', sans-serif;
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 900; line-height: 1.08; margin-bottom: 18px;
+  }
+  .hero h1 .hg { background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero p { color: var(--txt2); font-size: 1.05rem; max-width: 480px; margin: 0 auto; }
+
+  .setup-card { width: 100%; max-width: 500px; padding: 32px; }
+  .setup-card h2 { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+  .setup-sub { color: var(--txt2); font-size: 0.82rem; margin-bottom: 28px; line-height: 1.6; }
+
+  .key-wrap { position: relative; }
+  .key-wrap input { padding-right: 46px; }
+  .eye-btn {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; color: var(--txt3);
+    font-size: 1rem; padding: 4px; transition: color 0.2s;
+  }
+  .eye-btn:hover { color: var(--txt2); }
+
+  .api-hint { margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .api-link { font-size: 0.76rem; color: var(--or1); text-decoration: none; opacity: 0.85; transition: opacity 0.2s; }
+  .api-link:hover { opacity: 1; }
+  .api-note { font-size: 0.74rem; color: var(--txt3); }
+
+  .divider { height: 1px; background: var(--bdr); margin: 24px 0; }
+
+  .feat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 24px; }
+  .feat-item { display: flex; align-items: center; gap: 8px; font-size: 0.79rem; color: var(--txt2); }
+  .feat-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--or1); flex-shrink: 0; }
+
+  /* ═══════════════════════════════════════════════════════
+     SCREEN 2 — UPLOAD
+  ══════════════════════════════════════════════════════ */
+  #scr-upload { align-items: center; justify-content: center; padding: 40px 20px; gap: 24px; }
+  .up-hd { text-align: center; }
+  .up-hd h1 { font-family: 'Poppins', sans-serif; font-size: 1.9rem; font-weight: 800; margin-bottom: 8px; }
+  .up-hd p { color: var(--txt2); }
+
+  .drop-zone {
+    width: 100%; max-width: 600px; border: 2px dashed var(--bdr);
+    border-radius: var(--rlg); padding: 64px 40px; text-align: center;
+    cursor: pointer; transition: all 0.3s; background: var(--surf);
+  }
+  .drop-zone:hover, .drop-zone.drag-on {
+    border-color: var(--or1); background: rgba(255,107,53,0.05);
+    box-shadow: 0 0 60px rgba(255,107,53,0.1);
+  }
+  .drop-icon { font-size: 3.2rem; display: block; margin-bottom: 16px; }
+  .drop-zone h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+  .drop-zone p { color: var(--txt2); font-size: 0.9rem; margin-bottom: 20px; }
+  .fmt-chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .fmt { padding: 4px 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--bdr); border-radius: 6px; font-size: 0.73rem; color: var(--txt2); font-family: monospace; }
+
+  #file-inp { display: none; }
+  .file-card { display: none; width: 100%; max-width: 600px; }
+  .file-card.show { display: block; }
+  .file-inner { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-radius: var(--r); background: var(--surf); border: 1px solid var(--bdr); }
+  .file-ico { width: 52px; height: 52px; background: var(--grad); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0; }
+  .file-meta { flex: 1; min-width: 0; }
+  .file-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { color: var(--txt2); font-size: 0.78rem; }
+
+  /* ═══════════════════════════════════════════════════════
+     SCREEN 3 — PROCESSING
+  ══════════════════════════════════════════════════════ */
+  #scr-proc { align-items: center; justify-content: center; padding: 40px 20px; gap: 36px; }
+  .proc-hd { text-align: center; }
+  .proc-hd h2 { font-family: 'Poppins', sans-serif; font-size: 1.8rem; font-weight: 800; margin-bottom: 8px; }
+  .proc-hd p { color: var(--txt2); font-size: 0.9rem; }
+
+  .steps { width: 100%; max-width: 540px; display: flex; flex-direction: column; gap: 10px; }
+  .step {
+    display: flex; align-items: center; gap: 14px; padding: 14px 18px;
+    border-radius: var(--r); background: var(--surf); border: 1px solid var(--bdr);
+    transition: all 0.3s;
+  }
+  .step.active { border-color: rgba(255,107,53,0.4); background: rgba(255,107,53,0.06); }
+  .step.done   { border-color: rgba(16,185,129,0.3);  background: rgba(16,185,129,0.05); }
+  .step.err    { border-color: rgba(239,68,68,0.4);   background: rgba(239,68,68,0.05); }
+
+  .step-ico {
+    width: 38px; height: 38px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.05rem;
+    background: rgba(255,255,255,0.06); flex-shrink: 0; transition: all 0.3s;
+  }
+  .step.active .step-ico { background: rgba(255,107,53,0.18); animation: pulse-ring 1.5s infinite; }
+  .step.done   .step-ico { background: rgba(16,185,129,0.18); }
+  .step.err    .step-ico { background: rgba(239,68,68,0.18); }
+
+  @keyframes pulse-ring {
+    0%,100% { box-shadow: 0 0 0 0 rgba(255,107,53,0.35); }
+    50%      { box-shadow: 0 0 0 8px rgba(255,107,53,0); }
+  }
+
+  .step-body { flex: 1; }
+  .step-ttl { font-weight: 600; font-size: 0.88rem; margin-bottom: 2px; }
+  .step-sub { font-size: 0.75rem; color: var(--txt3); }
+  .step.active .step-sub { color: var(--txt2); }
+  .step-st { font-size: 1.05rem; flex-shrink: 0; }
+  .step.active .step-st { display: inline-block; animation: spin 0.9s linear infinite; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .proc-log {
+    width: 100%; max-width: 540px; padding: 14px 16px;
+    background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: var(--r); font-family: 'Courier New', monospace;
+    font-size: 0.72rem; color: var(--txt2); height: 90px; overflow-y: auto;
+  }
+  .proc-log::-webkit-scrollbar { width: 4px; }
+  .proc-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+  .log-ok  { color: var(--ok); }
+  .log-err { color: var(--err); }
+
+  /* ═══════════════════════════════════════════════════════
+     SCREEN 4 — EDITOR
+  ══════════════════════════════════════════════════════ */
+  #scr-editor { height: 100vh; overflow: hidden; }
+
+  .editor-grid {
+    display: grid; grid-template-columns: 1fr 370px;
+    flex: 1; min-height: 0;
+    height: calc(100vh - 57px);
+    overflow: hidden;
+  }
+
+  /* VIDEO PANEL */
+  .vpanel { display: flex; flex-direction: column; background: #04040A; }
+  .vcenter {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden; min-height: 0;
+  }
+  .vwrap { position: relative; }
+  #pvideo { display: block; max-width: 100%; max-height: calc(100vh - 160px); border-radius: 8px; background: #000; }
+
+  .sub-overlay { position: absolute; inset: 0; pointer-events: none; border-radius: 8px; overflow: hidden; }
+  #sub-display {
+    position: absolute; cursor: grab; pointer-events: all;
+    user-select: none; transform: translate(-50%, -50%);
+    text-align: center; max-width: 90%; line-height: 1.25; will-change: left, top;
+  }
+  #sub-display:active { cursor: grabbing; }
+
+  /* bg modes */
+  #sub-display.bg-pill  { padding: 6px 18px; border-radius: 8px; }
+  #sub-display.bg-solid { padding: 8px 20px; border-radius: 4px; }
+  #sub-display.bg-none  { padding: 0; background: transparent !important; }
+
+  /* Orientation Layouts */
+  #sub-display.or-horizontal { writing-mode: horizontal-tb; text-orientation: mixed; }
+  #sub-display.or-vertical   { writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 2px; line-height: 1.4; max-height: 80%; }
+  #sub-display.or-sidebar    { writing-mode: vertical-rl; text-orientation: sideways; letter-spacing: 1px; }
+  #sub-display.or-stacked    { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  #sub-display.or-stacked .kword { display: block; width: 100%; text-align: center; }
+
+  /* Presets */
+  .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 16px; }
+  .preset-chip {
+    padding: 8px 6px; border: 1px solid var(--bdr); border-radius: var(--rsm);
+    background: var(--surf); cursor: pointer; text-align: center;
+    font-size: 0.72rem; font-weight: 600; color: var(--txt); transition: all 0.18s;
+  }
+  .preset-chip:hover { border-color: var(--or1); background: rgba(255,107,53,0.12); color: var(--or1); }
+
+  /* Karaoke */
+  .kword { display: inline-block; transition: color 0.08s, transform 0.08s; }
+  .khi   { transform: scale(1.12); }
+
+  /* Guide lines */
+  .gh, .gv { position: absolute; background: rgba(255,107,53,0.35); pointer-events: none; display: none; }
+  .gh { height: 1px; width: 100%; left: 0; }
+  .gv { width: 1px; height: 100%; top: 0; }
+  .dragging-now .gh, .dragging-now .gv { display: block; }
+
+  /* Subtitle animations */
+  @keyframes afade  { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes aslide { from { opacity: 0; transform: translate(-50%, calc(-50% + 22px)); } to { opacity: 1; transform: translate(-50%, -50%); } }
+  @keyframes abounce {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.65); }
+    60%  { transform: translate(-50%, -50%) scale(1.07); }
+    80%  { transform: translate(-50%, -50%) scale(0.96); }
+    100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes apop {
+    0%   { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(0.88); }
+    70%  { transform: translate(-50%, calc(-50% - 3px)) scale(1.03); }
+    100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes aright { from { opacity: 0; transform: translate(calc(-50% - 32px), -50%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+  @keyframes azoom  { from { opacity: 0; transform: translate(-50%, -50%) scale(1.4); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+  .an-fade   { animation: afade  0.28s ease forwards; }
+  .an-slide  { animation: aslide 0.32s ease forwards; }
+  .an-bounce { animation: abounce 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+  .an-pop    { animation: apop   0.38s ease forwards; }
+  .an-right  { animation: aright 0.32s ease forwards; }
+  .an-zoom   { animation: azoom  0.32s ease forwards; }
+
+  /* VIDEO CONTROLS */
+  .vctrl {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    background: rgba(0,0,0,0.65); border-top: 1px solid var(--bdr); flex-shrink: 0;
+  }
+  .ctrl-btn {
+    background: none; border: none; color: var(--txt); cursor: pointer;
+    font-size: 1.1rem; padding: 6px 8px; border-radius: 8px;
+    display: flex; align-items: center; transition: background 0.2s;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,0.1); }
+  .time-lbl { font-size: 0.75rem; color: var(--txt2); font-family: monospace; min-width: 100px; }
+  .prog-wrap {
+    flex: 1; height: 5px; background: rgba(255,255,255,0.14);
+    border-radius: 4px; cursor: pointer; position: relative;
+  }
+  .prog-fill { height: 100%; background: var(--grad); border-radius: 4px; width: 0%; }
+  .prog-thumb {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    width: 13px; height: 13px; border-radius: 50%; background: #fff;
+    box-shadow: 0 0 6px rgba(0,0,0,0.4); left: 0%; pointer-events: none;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    display: flex; flex-direction: column; border-left: 1px solid var(--bdr);
+    background: var(--bg2); overflow: hidden;
+  }
+  .stabs { display: flex; border-bottom: 1px solid var(--bdr); }
+  .stab {
+    flex: 1; padding: 13px 8px; background: none; border: none;
+    color: var(--txt3); font-size: 0.75rem; font-weight: 700; cursor: pointer;
+    font-family: 'Inter', sans-serif; border-bottom: 2px solid transparent;
+    transition: all 0.2s; letter-spacing: 0.01em;
+  }
+  .stab.on { color: var(--or1); border-bottom-color: var(--or1); background: rgba(255,107,53,0.05); }
+  .stab:hover:not(.on) { color: var(--txt2); background: var(--surf); }
+
+  .spanel { flex: 1; overflow-y: auto; padding: 16px; }
+  .spanel::-webkit-scrollbar { width: 3px; }
+  .spanel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+  .tpanel { display: none; }
+  .tpanel.on { display: block; }
+
+  /* SUBTITLE LIST */
+  .sub-list { display: flex; flex-direction: column; gap: 8px; }
+  .sub-item {
+    border: 1px solid var(--bdr); border-radius: var(--rsm);
+    background: var(--surf); padding: 12px; transition: all 0.2s;
+  }
+  .sub-item:hover { border-color: var(--bdr2); background: var(--surf2); }
+  .sub-item.cur  { border-color: var(--or1); background: rgba(255,107,53,0.08); }
+
+  .sub-times { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .sub-ts-tag {
+    font-size: 0.72rem; font-family: monospace; font-weight: 700;
+    color: var(--or1); background: rgba(255,107,53,0.14); padding: 3px 8px; border-radius: 4px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .sub-time-inputs { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .sub-t-lbl { font-size: 0.68rem; color: var(--txt3); display: flex; align-items: center; gap: 4px; flex: 1; }
+  .sub-t {
+    flex: 1; padding: 4px 6px; background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
+    color: var(--txt); font-size: 0.72rem; font-family: monospace;
+    text-align: center; outline: none; width: 100%;
+  }
+  .sub-t:focus { border-color: var(--or1); }
+  .sub-arr { color: var(--txt3); font-size: 0.62rem; }
+  .sub-num { font-size: 0.62rem; color: var(--txt3); margin-left: auto; }
+  .sub-ta {
+    width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px; color: var(--txt); font-size: 0.84rem; padding: 8px 10px;
+    resize: none; min-height: 44px; font-family: 'Inter', sans-serif; outline: none;
+  }
+  .sub-ta:focus { border-color: var(--or1); }
+  .sub-btns { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+  .sub-btn {
+    padding: 3px 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 5px; color: var(--txt3); font-size: 0.7rem; cursor: pointer;
+    font-family: 'Inter', sans-serif; transition: all 0.2s;
+  }
+  .sub-btn:hover { color: var(--txt); background: rgba(255,255,255,0.1); }
+  .sub-btn.del:hover { color: var(--err); border-color: rgba(239,68,68,0.3); }
+  .add-sub-btn {
+    margin-top: 10px; width: 100%; padding: 11px;
+    background: rgba(255,107,53,0.07); border: 1px dashed rgba(255,107,53,0.3);
+    border-radius: var(--rsm); color: var(--or1); font-size: 0.83rem;
+    font-weight: 500; cursor: pointer; transition: all 0.2s; font-family: 'Inter', sans-serif;
+  }
+  .add-sub-btn:hover { background: rgba(255,107,53,0.14); }
+
+  /* STYLE PANEL */
+  .ssec { margin-bottom: 22px; }
+  .ssec-title {
+    font-size: 0.72rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--txt3); margin-bottom: 10px;
+  }
+  .opt-g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  .opt-g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
+  .opt {
+    padding: 9px 8px; border: 1px solid var(--bdr); border-radius: var(--rsm);
+    background: var(--surf); cursor: pointer; text-align: center;
+    font-family: 'Inter', sans-serif; font-size: 0.77rem; font-weight: 500;
+    color: var(--txt2); transition: all 0.18s;
+  }
+  .opt:hover { border-color: var(--bdr2); color: var(--txt); }
+  .opt.on { border-color: var(--or1); background: rgba(255,107,53,0.1); color: var(--or1); }
+
+  .font-opt {
+    padding: 10px 14px; border: 1px solid var(--bdr); border-radius: var(--rsm);
+    background: var(--surf); cursor: pointer; transition: all 0.18s;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .font-opt:hover { border-color: var(--bdr2); }
+  .font-opt.on { border-color: var(--or1); background: rgba(255,107,53,0.1); }
+  .fnm { font-size: 0.85rem; font-weight: 500; }
+  .fpv { font-size: 0.9rem; color: var(--txt2); }
+
+  .anim-em { display: block; font-size: 1.2rem; margin-bottom: 3px; }
+
+  .clr-row { display: flex; align-items: center; gap: 12px; }
+  .clr-sw { width: 36px; height: 36px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.15); cursor: pointer; flex-shrink: 0; }
+  input[type="color"] { opacity: 0; position: absolute; width: 0; height: 0; }
+  .clr-lbl { font-size: 0.82rem; color: var(--txt2); }
+
+  .sl-row { display: flex; align-items: center; gap: 10px; }
+  .sl-lbl { font-size: 0.72rem; color: var(--txt3); white-space: nowrap; }
+  .sl-val { font-size: 0.75rem; color: var(--txt2); min-width: 32px; text-align: right; }
+
+  input[type="range"] {
+    -webkit-appearance: none; flex: 1; height: 4px; padding: 0;
+    background: rgba(255,255,255,0.12); border-radius: 4px; border: none; outline: none; box-shadow: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: var(--or1); cursor: pointer; box-shadow: 0 0 8px rgba(255,107,53,0.45);
+  }
+
+  .pos-reset {
+    width: 100%; padding: 9px; background: rgba(255,255,255,0.04);
+    border: 1px solid var(--bdr); border-radius: var(--rsm);
+    color: var(--txt2); font-size: 0.78rem; cursor: pointer;
+    font-family: 'Inter', sans-serif; transition: all 0.2s;
+  }
+  .pos-reset:hover { border-color: var(--bdr2); color: var(--txt); }
+
+  /* EXPORT PANEL */
+  .exp-card {
+    border: 1px solid var(--bdr); border-radius: var(--r);
+    background: var(--surf); padding: 18px; margin-bottom: 10px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .exp-card:hover { border-color: var(--bdr2); background: var(--surf2); }
+  .exp-card.rec { border-color: rgba(255,107,53,0.3); }
+  .exp-hd { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .exp-ico { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+  .exp-ico.v { background: rgba(255,107,53,0.15); }
+  .exp-ico.s { background: rgba(124,58,237,0.15); }
+  .exp-card h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 2px; }
+  .exp-card p  { font-size: 0.75rem; color: var(--txt2); }
+  .exp-pg { display: none; margin-top: 12px; }
+  .exp-pg.show { display: block; }
+  .exp-pg-bar { width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 5px; overflow: hidden; margin-bottom: 7px; }
+  .exp-pg-fill { height: 100%; background: var(--grad); border-radius: 5px; width: 0%; transition: width 0.25s; }
+  .exp-pg-txt  { font-size: 0.75rem; color: var(--txt2); }
+  .exp-tip {
+    padding: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--bdr);
+    border-radius: var(--rsm); font-size: 0.76rem; color: var(--txt2); line-height: 1.65; margin-top: 14px;
+  }
+
+  /* ── TOAST ────────────────────────────────────────────── */
+  #toasts {
+    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .toast {
+    padding: 12px 18px; border-radius: var(--rsm); background: var(--bg3);
+    border: 1px solid var(--bdr); box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    font-size: 0.83rem; display: flex; align-items: center; gap: 10px;
+    min-width: 270px; animation: tin 0.28s ease;
+  }
+  .toast.ok   { border-color: rgba(16,185,129,0.3); }
+  .toast.err  { border-color: rgba(239,68,68,0.3); }
+  .toast.warn { border-color: rgba(245,158,11,0.3); }
+  @keyframes tin  { from { transform: translateX(80px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes tout { from { transform: translateX(0); opacity: 1; }    to { transform: translateX(80px); opacity: 0; } }
+
+  /* ── MISC ─────────────────────────────────────────────── */
+  @keyframes fiu { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+  .fiu  { animation: fiu 0.45s ease both; }
+  .fiu2 { animation: fiu 0.45s 0.12s ease both; }
+
+  @media (max-width: 800px) {
+    .editor-grid { grid-template-columns: 1fr; height: auto; }
+    .sidebar { border-left: none; border-top: 1px solid var(--bdr); max-height: 45vh; }
+    #pvideo { max-height: 45vh; }
+  }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     SCREEN 1 — SETUP
+════════════════════════════════════════════════════════ -->
+<div id="scr-setup" class="screen active">
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;gap:44px;z-index:1">
+
+    <div class="hero fiu">
+      <div class="hero-eyebrow">🇮🇳 Free AI Tool for Indian Creators</div>
+      <h1>Make <span class="hg">Hinglish</span><br>Subtitles Instantly</h1>
+      <p>Upload your reel, let AI listen to your Hindi audio, and auto-generate Hinglish subtitles — styled, animated, and ready to embed. Completely free.</p>
+    </div>
+
+    <div class="glass setup-card fiu2">
+      <h2>🔑 One Free API Key — That's It!</h2>
+      <p class="setup-sub">Groq handles <strong style="color:var(--txt)">everything</strong> — audio transcription with Whisper <em>and</em> Hindi→Hinglish conversion with Llama 3.3. It's 100% free, no credit card required.</p>
+
+      <div class="fgrp">
+        <label for="inp-groq">Groq API Key <span style="color:var(--or1)">(Whisper transcription + Llama Hinglish conversion)</span></label>
+        <div class="key-wrap">
+          <input type="password" id="inp-groq" placeholder="gsk_xxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+          <button class="eye-btn" onclick="toggleKey('inp-groq',this)" type="button">👁</button>
+        </div>
+        <div class="api-hint">
+          <a href="https://console.groq.com" target="_blank" class="api-link">↗ Get your free Groq key (no card needed)</a>
+          <span class="api-note">• 14,400 req/day free</span>
+        </div>
+      </div>
+
+      <div style="padding:12px 14px;background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:var(--rsm);font-size:0.78rem;color:var(--txt2);line-height:1.65;margin-bottom:4px">
+        <strong style="color:var(--ok)">✅ Why only one key?</strong> Groq gives you both <strong style="color:var(--txt)">Whisper Large v3</strong> (audio transcription) and <strong style="color:var(--txt)">Llama 3.3-70B</strong> (Hinglish conversion) for free. No DeepSeek needed.
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="feat-grid">
+        <div class="feat-item"><span class="feat-dot"></span>Hindi → Hinglish AI</div>
+        <div class="feat-item"><span class="feat-dot"></span>Drag to reposition</div>
+        <div class="feat-item"><span class="feat-dot"></span>7 animation styles</div>
+        <div class="feat-item"><span class="feat-dot"></span>Karaoke word highlight</div>
+        <div class="feat-item"><span class="feat-dot"></span>4 fonts + color picker</div>
+        <div class="feat-item"><span class="feat-dot"></span>Export MP4 or SRT</div>
+        <div class="feat-item"><span class="feat-dot"></span>100% free — 1 key only</div>
+        <div class="feat-item"><span class="feat-dot"></span>No data leaves device</div>
+      </div>
+
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:15px" onclick="goUpload()">
+        Start Making Subtitles &nbsp;→
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     SCREEN 2 — UPLOAD
+════════════════════════════════════════════════════════ -->
+<div id="scr-upload" class="screen">
+  <nav class="nav">
+    <div class="nav-brand">
+      <div class="nav-logo">🎬</div>
+      <span class="brand-g">HinglishCut</span>
+    </div>
+    <button class="btn btn-ghost" onclick="showScreen('scr-setup')" style="padding:8px 16px;font-size:0.78rem">⚙ API Keys</button>
+  </nav>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;gap:24px">
+
+    <div class="up-hd fiu">
+      <h1>Upload Your Reel Video</h1>
+      <p>We'll extract the audio and auto-generate Hinglish subtitles</p>
+    </div>
+
+    <div class="drop-zone fiu2" id="drop-zone" onclick="document.getElementById('file-inp').click()">
+      <span class="drop-icon">📽️</span>
+      <h2>Drop your video here</h2>
+      <p>or click to browse files</p>
+      <div class="fmt-chips">
+        <span class="fmt">.mp4</span><span class="fmt">.mov</span>
+        <span class="fmt">.webm</span><span class="fmt">.avi</span><span class="fmt">.mkv</span>
+      </div>
+    </div>
+    <input type="file" id="file-inp" accept="video/*">
+
+    <div class="file-card" id="file-card">
+      <div class="file-inner">
+        <div class="file-ico">🎬</div>
+        <div class="file-meta">
+          <div class="file-name" id="file-name">video.mp4</div>
+          <div class="file-size" id="file-size">0 MB</div>
+        </div>
+        <button class="btn btn-primary" onclick="startProc()" style="padding:10px 20px">Generate Subtitles ✨</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     SCREEN 3 — PROCESSING
+════════════════════════════════════════════════════════ -->
+<div id="scr-proc" class="screen">
+  <nav class="nav">
+    <div class="nav-brand">
+      <div class="nav-logo">🎬</div>
+      <span class="brand-g">HinglishCut</span>
+    </div>
+    <div class="badge badge-or" style="animation:pulse-ring 2s infinite">🤖 AI Working...</div>
+  </nav>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;gap:32px">
+
+    <div class="proc-hd">
+      <h2>Generating Hinglish Subtitles</h2>
+      <p>Sit back — AI is listening to your audio and crafting perfect Hinglish subtitles ✨</p>
+    </div>
+
+    <div class="steps">
+      <div class="step" id="step-ff">
+        <div class="step-ico">🎵</div>
+        <div class="step-body"><div class="step-ttl">Extracting Audio</div><div class="step-sub">Using Web Audio API to decode your video</div></div>
+        <div class="step-st">⏳</div>
+      </div>
+      <div class="step" id="step-au">
+        <div class="step-ico">📦</div>
+        <div class="step-body"><div class="step-ttl">Preparing for Transcription</div><div class="step-sub">Compressing audio for upload</div></div>
+        <div class="step-st">⏳</div>
+      </div>
+      <div class="step" id="step-tr">
+        <div class="step-ico">🎤</div>
+        <div class="step-body"><div class="step-ttl">Transcribing Hindi Audio</div><div class="step-sub">Groq Whisper AI is listening...</div></div>
+        <div class="step-st">⏳</div>
+      </div>
+      <div class="step" id="step-hi">
+        <div class="step-ico">✍️</div>
+        <div class="step-body"><div class="step-ttl">Converting to Hinglish</div><div class="step-sub">Groq Llama 3.3 is writing your subtitles</div></div>
+        <div class="step-st">⏳</div>
+      </div>
+    </div>
+
+    <div class="proc-log" id="proc-log"><span style="color:var(--txt3)">Waiting to start...</span></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     SCREEN 4 — EDITOR
+════════════════════════════════════════════════════════ -->
+<div id="scr-editor" class="screen">
+
+  <nav class="nav">
+    <div class="nav-brand">
+      <div class="nav-logo">🎬</div>
+      <span class="brand-g">HinglishCut</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="badge badge-ok" id="sub-badge">✓ 0 subtitles</span>
+      <button class="btn btn-ghost" onclick="showScreen('scr-upload')" style="padding:8px 16px;font-size:0.78rem">↩ New Video</button>
+    </div>
+  </nav>
+
+  <div class="editor-grid">
+
+    <!-- VIDEO PANEL -->
+    <div class="vpanel">
+      <div class="vcenter">
+        <div class="vwrap" id="vwrap">
+          <video id="pvideo" preload="auto" playsinline></video>
+          <div class="sub-overlay" id="sub-overlay">
+            <div id="sub-display" style="left:50%;top:85%"><span id="sub-text"></span></div>
+            <div class="gh" id="gh"></div>
+            <div class="gv" id="gv"></div>
+          </div>
+        </div>
+      </div>
+      <div class="vctrl">
+        <button class="ctrl-btn" id="play-btn" onclick="togglePlay()">▶</button>
+        <div class="time-lbl" id="time-lbl">0:00 / 0:00</div>
+        <div class="prog-wrap" id="prog-wrap" onclick="seekVid(event)">
+          <div class="prog-fill" id="prog-fill"></div>
+          <div class="prog-thumb" id="prog-thumb"></div>
+        </div>
+        <button class="ctrl-btn" onclick="restartVid()" title="Restart">↺</button>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="stabs">
+        <button class="stab on"  id="tb-subs"  onclick="switchTab('subs',this)">📝 Subtitles</button>
+        <button class="stab"     id="tb-style" onclick="switchTab('style',this)">🎨 Style</button>
+        <button class="stab"     id="tb-exp"   onclick="switchTab('exp',this)">⬇ Export</button>
+      </div>
+      <div class="spanel">
+
+        <!-- SUBTITLES TAB -->
+        <div class="tpanel on" id="tp-subs">
+          <div class="sub-list" id="sub-list"></div>
+          <button class="add-sub-btn" onclick="addSub()">+ Add Subtitle at Current Time</button>
+        </div>
+
+        <!-- STYLE TAB -->
+        <div class="tpanel" id="tp-style">
+
+          <!-- QUICK PRESETS -->
+          <div class="ssec">
+            <div class="ssec-title">Quick Reel Presets</div>
+            <div class="preset-grid">
+              <div class="preset-chip" onclick="applyPreset('normal')">✨ Normal / Clean</div>
+              <div class="preset-chip" onclick="applyPreset('hormozi')">🔥 Hormozi</div>
+              <div class="preset-chip" onclick="applyPreset('neon')">⚡ Cyber Neon</div>
+              <div class="preset-chip" onclick="applyPreset('manga')">🎌 Vertical Reel</div>
+              <div class="preset-chip" onclick="applyPreset('stacked')">🥞 Word Stack</div>
+              <div class="preset-chip" onclick="applyPreset('sidebar')">💈 Sidebar Strip</div>
+              <div class="preset-chip" onclick="applyPreset('minimal')">🎬 Minimal</div>
+            </div>
+          </div>
+
+          <!-- LAYOUT & ORIENTATION -->
+          <div class="ssec">
+            <div class="ssec-title">Subtitle Layout &amp; Orientation</div>
+            <div class="opt-g2" id="orient-opts">
+              <div class="opt on" onclick="setOrient('horizontal',this)">↔ Horizontal</div>
+              <div class="opt"    onclick="setOrient('vertical',this)">↕ Vertical Upright</div>
+              <div class="opt"    onclick="setOrient('stacked',this)">🥞 Word Stack</div>
+              <div class="opt"    onclick="setOrient('sidebar',this)">💈 Sidebar Strip</div>
+            </div>
+          </div>
+
+          <!-- TEXT TRANSFORM / CASE -->
+          <div class="ssec">
+            <div class="ssec-title">Text Case</div>
+            <div class="opt-g2" id="case-opts">
+              <div class="opt on" onclick="setCase('none',this)">Normal</div>
+              <div class="opt"    onclick="setCase('uppercase',this)">ALL CAPS</div>
+              <div class="opt"    onclick="setCase('lowercase',this)">lowercase</div>
+              <div class="opt"    onclick="setCase('capitalize',this)">Title Case</div>
+            </div>
+          </div>
+
+          <!-- FONT SIZE -->
+          <div class="ssec">
+            <div class="ssec-title">Font Size</div>
+            <div class="opt-g2">
+              <div class="opt" onclick="setSize(24,this)">Small <small style="opacity:.5">(24)</small></div>
+              <div class="opt on" onclick="setSize(36,this)">Medium <small style="opacity:.5">(36)</small></div>
+              <div class="opt" onclick="setSize(48,this)">Large <small style="opacity:.5">(48)</small></div>
+              <div class="opt" onclick="setSize(64,this)">XL <small style="opacity:.5">(64)</small></div>
+            </div>
+          </div>
+
+          <!-- FONT FAMILY -->
+          <div class="ssec">
+            <div class="ssec-title">Font Family</div>
+            <div style="display:flex;flex-direction:column;gap:6px" id="font-list">
+              <div class="font-opt on" onclick="setFont('Inter',this)">
+                <span class="fnm">Inter</span><span class="fpv" style="font-family:'Inter'">Namaste yaar!</span>
+              </div>
+              <div class="font-opt" onclick="setFont('Poppins',this)">
+                <span class="fnm">Poppins</span><span class="fpv" style="font-family:'Poppins'">Namaste yaar!</span>
+              </div>
+              <div class="font-opt" onclick="setFont('Baloo 2',this)">
+                <span class="fnm">Baloo 2 ⭐</span><span class="fpv" style="font-family:'Baloo 2'">Namaste yaar!</span>
+              </div>
+              <div class="font-opt" onclick="setFont('Nunito',this)">
+                <span class="fnm">Nunito</span><span class="fpv" style="font-family:'Nunito'">Namaste yaar!</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- FONT WEIGHT -->
+          <div class="ssec">
+            <div class="ssec-title">Font Weight</div>
+            <div class="sl-row">
+              <span class="sl-lbl">Thin</span>
+              <input type="range" id="fw-sl" min="300" max="900" step="100" value="700" oninput="setFW(this.value)">
+              <span class="sl-lbl">Bold</span>
+              <span class="sl-val" id="fw-val">700</span>
+            </div>
+          </div>
+
+          <!-- TEXT COLOR & STROKE -->
+          <div class="ssec">
+            <div class="ssec-title">Text &amp; Outline Color</div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div class="clr-row">
+                <span class="sl-lbl" style="width:70px">Text Color</span>
+                <div class="clr-sw" id="txt-sw" style="background:#fff" onclick="document.getElementById('txt-clr').click()"></div>
+                <input type="color" id="txt-clr" value="#ffffff" onchange="setTxtClr(this.value)">
+                <span class="clr-lbl" id="txt-clr-lbl">#FFFFFF</span>
+              </div>
+              <div class="clr-row">
+                <span class="sl-lbl" style="width:70px">Outline Color</span>
+                <div class="clr-sw" id="stroke-sw" style="background:#000" onclick="document.getElementById('stroke-clr').click()"></div>
+                <input type="color" id="stroke-clr" value="#000000" onchange="setStrokeClr(this.value)">
+                <span class="clr-lbl" id="stroke-clr-lbl">#000000</span>
+              </div>
+              <div class="clr-row">
+                <span class="sl-lbl" style="width:70px">Active Highlight</span>
+                <div class="clr-sw" id="hl-sw" style="background:#FFE066" onclick="document.getElementById('hl-clr').click()"></div>
+                <input type="color" id="hl-clr" value="#FFE066" onchange="setHlClr(this.value)">
+                <span class="clr-lbl" id="hl-clr-lbl">#FFE066</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- OUTLINE THICKNESS & LETTER SPACING -->
+          <div class="ssec">
+            <div class="ssec-title">Outline &amp; Spacing Fine-Tuning</div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div class="sl-row">
+                <span class="sl-lbl" style="width:75px">Outline Size</span>
+                <input type="range" id="stroke-sl" min="0" max="10" step="1" value="0" oninput="setStrokeWidth(this.value)">
+                <span class="sl-val" id="stroke-val">0px</span>
+              </div>
+              <div class="sl-row">
+                <span class="sl-lbl" style="width:75px">Letter Space</span>
+                <input type="range" id="ls-sl" min="-2" max="16" step="1" value="0" oninput="setLetterSpace(this.value)">
+                <span class="sl-val" id="ls-val">0px</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- BACKGROUND & OPACITY -->
+          <div class="ssec">
+            <div class="ssec-title">Background Style &amp; Color</div>
+            <div class="opt-g3" id="bg-opts" style="margin-bottom:10px">
+              <div class="opt on" onclick="setBg('pill',this)">Pill 💊</div>
+              <div class="opt"    onclick="setBg('solid',this)">Solid ▬</div>
+              <div class="opt"    onclick="setBg('none',this)">None ✗</div>
+            </div>
+            <div class="clr-row" style="margin-bottom:10px">
+              <span class="sl-lbl" style="width:70px">BG Color</span>
+              <div class="clr-sw" id="bg-sw" style="background:#000000" onclick="document.getElementById('bg-clr').click()"></div>
+              <input type="color" id="bg-clr" value="#000000" onchange="setBgClr(this.value)">
+              <span class="clr-lbl" id="bg-clr-lbl">#000000</span>
+            </div>
+            <div class="sl-row">
+              <span class="sl-lbl" style="width:70px">BG Opacity</span>
+              <input type="range" id="bg-op-sl" min="0" max="100" step="5" value="75" oninput="setBgOpacity(this.value)">
+              <span class="sl-val" id="bg-op-val">75%</span>
+            </div>
+          </div>
+
+          <!-- SHADOWS -->
+          <div class="ssec">
+            <div class="ssec-title">Text Shadow &amp; Glow</div>
+            <div class="opt-g2" id="shadow-opts">
+              <div class="opt on" onclick="setShadow('soft',this)">Soft Shadow</div>
+              <div class="opt"    onclick="setShadow('heavy',this)">Heavy Shadow</div>
+              <div class="opt"    onclick="setShadow('glow',this)">Neon Glow ✨</div>
+              <div class="opt"    onclick="setShadow('none',this)">None</div>
+            </div>
+          </div>
+
+          <!-- ANIMATIONS -->
+          <div class="ssec">
+            <div class="ssec-title">Entry Animation</div>
+            <div class="opt-g2" id="anim-opts">
+              <div class="opt on" onclick="setAnim('fade',this)"><span class="anim-em">✨</span>Fade</div>
+              <div class="opt"    onclick="setAnim('slide',this)"><span class="anim-em">⬆️</span>Slide Up</div>
+              <div class="opt"    onclick="setAnim('bounce',this)"><span class="anim-em">🏀</span>Bounce</div>
+              <div class="opt"    onclick="setAnim('pop',this)"><span class="anim-em">💥</span>Pop</div>
+              <div class="opt"    onclick="setAnim('right',this)"><span class="anim-em">➡️</span>Slide Right</div>
+              <div class="opt"    onclick="setAnim('zoom',this)"><span class="anim-em">🔍</span>Zoom In</div>
+              <div class="opt"    onclick="setAnim('karaoke',this)" style="grid-column:span 2"><span class="anim-em">🎤</span>Karaoke Word Highlight</div>
+              <div class="opt"    onclick="setAnim('none',this)"><span class="anim-em">⛔</span>None</div>
+            </div>
+          </div>
+
+          <div class="ssec">
+            <div class="ssec-title">Subtitle Placement &amp; Position</div>
+
+            <!-- 3x3 QUICK POSITION GRID -->
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px" id="pos-grid">
+              <button class="opt" onclick="setPos(15,15,this)">↖ Top Left</button>
+              <button class="opt" onclick="setPos(50,15,this)">⬆ Top Center</button>
+              <button class="opt" onclick="setPos(85,15,this)">↗ Top Right</button>
+              <button class="opt" onclick="setPos(15,50,this)">⬅ Mid Left</button>
+              <button class="opt" onclick="setPos(50,50,this)">🎯 Center</button>
+              <button class="opt" onclick="setPos(85,50,this)">➡️ Mid Right</button>
+              <button class="opt" onclick="setPos(15,80,this)">↙ Bot Left</button>
+              <button class="opt on" onclick="setPos(50,80,this)">⬇ Bot Center</button>
+              <button class="opt" onclick="setPos(85,80,this)">↘ Bot Right</button>
+            </div>
+
+            <!-- FINE-TUNING SLIDERS -->
+            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px">
+              <div class="sl-row">
+                <span class="sl-lbl" style="width:85px">X (Left ↔ Right)</span>
+                <input type="range" id="pos-x-sl" min="5" max="95" step="1" value="50" oninput="updatePosX(this.value)">
+                <span class="sl-val" id="pos-x-val">50%</span>
+              </div>
+              <div class="sl-row">
+                <span class="sl-lbl" style="width:85px">Y (Top ↕ Bottom)</span>
+                <input type="range" id="pos-y-sl" min="5" max="95" step="1" value="80" oninput="updatePosY(this.value)">
+                <span class="sl-val" id="pos-y-val">80%</span>
+              </div>
+            </div>
+
+            <button class="pos-reset" onclick="resetPos()">↕ Reset to Bottom Center (50%, 80%)</button>
+          </div>
+
+        </div>
+
+        <!-- EXPORT TAB -->
+        <div class="tpanel" id="tp-exp">
+
+          <p style="font-size:0.8rem;color:var(--txt2);line-height:1.65;margin-bottom:16px">Select your preferred export option below:</p>
+
+          <div class="exp-card rec" onclick="exportVideo()">
+            <div class="exp-hd">
+              <div class="exp-ico v" style="background:rgba(255,107,53,0.18)">🎬</div>
+              <div>
+                <h3 style="color:var(--or1)">Export Burned-In Video (With Subtitles)</h3>
+                <p>Subtitles rendered directly onto the video with selected font, position &amp; animations</p>
+              </div>
+            </div>
+            <div class="badge badge-or" style="font-size:0.68rem">🔥 Subtitles Baked Into Video &nbsp;•&nbsp; 25 Mbps High Quality</div>
+            <div class="exp-pg" id="exp-pg">
+              <div class="exp-pg-bar"><div class="exp-pg-fill" id="exp-fill"></div></div>
+              <div class="exp-pg-txt" id="exp-txt">Preparing...</div>
+            </div>
+          </div>
+
+          <div class="exp-card" onclick="exportBoth()">
+            <div class="exp-hd">
+              <div class="exp-ico v" style="background:rgba(16,185,129,0.18)">📦</div>
+              <div>
+                <h3>Export Raw Video + SRT Subtitle Package</h3>
+                <p>Original video file (100% untouched) + separate .SRT subtitle file</p>
+              </div>
+            </div>
+            <div class="badge badge-ok" style="font-size:0.68rem">⭐ 100% Original Quality &nbsp;•&nbsp; For CapCut / Premiere</div>
+          </div>
+
+          <div class="exp-card" onclick="exportSRT()">
+            <div class="exp-hd">
+              <div class="exp-ico s">📄</div>
+              <div><h3>Export SRT Subtitle File Only</h3><p>Subtitle text file — works in CapCut, Premiere, Instagram, YouTube</p></div>
+            </div>
+            <div class="badge badge-ok" style="font-size:0.68rem">⚡ Instant SRT Download</div>
+          </div>
+
+          <div class="exp-tip">
+            <strong style="color:var(--txt)">💡 Pro tip:</strong> Use <strong>Export Burned-In Video</strong> to get a finished reel video with Hinglish subtitles rendered directly on the video!
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────────────────
+const S = {
+  groqKey: '', dsKey: '',
+  videoFile: null, videoUrl: '',
+  subs: [],      // [{id, start, end, text}]
+  curIdx: -1,
+  st: {          // clean normal defaults
+    size: 36, font: 'Inter', fw: 600,
+    color: '#FFFFFF', bg: 'pill', bgColor: '#000000', bgOpacity: 75,
+    shadow: 'soft', anim: 'none', orient: 'horizontal', transform: 'none',
+    letterSpacing: 0, strokeWidth: 0, strokeColor: '#000000', hlColor: '#FFE066',
+  },
+  pos: { x: 50, y: 80 },
+};
+
+let isDrag = false, lastIdx = -1;
+
+// ─────────────────────────────────────────────────────────
+//  INIT & SETUP
+// ─────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  const sg = localStorage.getItem('hc_groq');
+  if (sg) document.getElementById('inp-groq').value = sg;
+
+  const dz = document.getElementById('drop-zone');
+  if (dz) {
+    dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag-on'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-on'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault(); dz.classList.remove('drag-on');
+      const f = e.dataTransfer.files[0];
+      if (f && f.type.startsWith('video/')) loadVideo(f);
+    });
+  }
+  const fi = document.getElementById('file-inp');
+  if (fi) {
+    fi.addEventListener('change', e => {
+      if (e.target.files[0]) loadVideo(e.target.files[0]);
+    });
+  }
+});
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function toggleKey(id, btn) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+  btn.textContent = el.type === 'password' ? '👁' : '🙈';
+}
+
+function goUpload() {
+  const g = document.getElementById('inp-groq').value.trim();
+  if (!g) { toast('Please enter your Groq API key', 'err'); return; }
+  S.groqKey = g;
+  localStorage.setItem('hc_groq', g);
+  showScreen('scr-upload');
+}
+
+function loadVideo(file) {
+  if (file.size > 600 * 1024 * 1024) toast('Video is very large. Consider using a shorter clip.', 'warn');
+  S.videoFile = file;
+  if (S.videoUrl) URL.revokeObjectURL(S.videoUrl);
+  S.videoUrl = URL.createObjectURL(file);
+  document.getElementById('file-name').textContent = file.name;
+  document.getElementById('file-size').textContent = (file.size / 1024 / 1024).toFixed(1) + ' MB';
+  document.getElementById('file-card').classList.add('show');
+  toast('Video loaded! Click "Generate Subtitles" ✨', 'ok');
+}
+
+async function startProc() {
+  if (!S.videoFile) { toast('Please upload a video first', 'err'); return; }
+  showScreen('scr-proc');
+
+  const logEl = document.getElementById('proc-log');
+  logEl.innerHTML = '';
+  const addLog = (msg, cls = '') => {
+    const d = document.createElement('div');
+    d.className = cls; d.textContent = '> ' + msg;
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  };
+  const setStep = (id, st) => {
+    const el = document.getElementById(id);
+    el.classList.remove('active', 'done', 'err'); el.classList.add(st);
+    const s = el.querySelector('.step-st');
+    s.textContent = st === 'active' ? '⏳' : st === 'done' ? '✅' : '❌';
+  };
+
+  try {
+    setStep('step-ff', 'active');
+    let audioBlob;
+
+    if (S.videoFile.size <= 24 * 1024 * 1024) {
+      addLog('File size OK — sending to Groq Whisper...');
+      audioBlob = S.videoFile;
+      setStep('step-ff', 'done');
+    } else {
+      addLog('Large file — extracting audio with Web Audio API...');
+      try {
+        audioBlob = await extractAudioWAV(S.videoFile);
+        setStep('step-ff', 'done');
+      } catch(e) {
+        audioBlob = S.videoFile;
+        setStep('step-ff', 'done');
+      }
+    }
+
+    setStep('step-au', 'active');
+    if (audioBlob.size > 25 * 1024 * 1024) throw new Error('Audio file is too large (>25MB). Use a shorter clip.');
+    setStep('step-au', 'done');
+
+    setStep('step-tr', 'active');
+    addLog('Transcribing audio & extracting word-level timestamps...');
+    const transcript = await groqTranscribe(audioBlob, S.groqKey);
+    const shortChunks = processShortSubtitles(transcript);
+    addLog(`Transcription done! Split into ${shortChunks.length} short word-synced blocks ⚡`, 'log-ok');
+    setStep('step-tr', 'done');
+
+    setStep('step-hi', 'active');
+    addLog('Converting Hindi → Hinglish with Groq Llama...');
+    const subs = await dsHinglish(shortChunks, S.groqKey);
+    addLog(`Generated ${subs.length} Hinglish short subtitles! 🎉`, 'log-ok');
+    setStep('step-hi', 'done');
+
+    S.subs = subs.map((s, i) => ({ ...s, id: i }));
+    addLog('Opening editor...', 'log-ok');
+    setTimeout(() => { initEditor(); showScreen('scr-editor'); }, 700);
+
+  } catch(e) {
+    addLog('Error: ' + e.message, 'log-err');
+    toast('Error: ' + e.message, 'err');
+    ['step-ff','step-au','step-tr','step-hi'].forEach(id => {
+      if (document.getElementById(id).classList.contains('active')) setStep(id, 'err');
+    });
+  }
+}
+
+function processShortSubtitles(transcript) {
+  let rawWords = transcript.words || [];
+
+  if (rawWords && rawWords.length > 0) {
+    const chunks = [];
+    const maxWords = 3; // 2-3 words per subtitle block max!
+    for (let i = 0; i < rawWords.length; i += maxWords) {
+      const group = rawWords.slice(i, i + maxWords);
+      const text  = group.map(w => w.word.trim()).join(' ');
+      const start = group[0].start;
+      const end   = group[group.length - 1].end;
+      chunks.push({ start: +start.toFixed(2), end: +end.toFixed(2), text });
+    }
+    return chunks;
+  }
+
+  // Fallback: split segments into short 2-3 word sub-chunks
+  let segs = transcript.segments || [];
+  if (!segs.length && transcript.text) {
+    segs = [{ start: 0, end: transcript.duration || 60, text: transcript.text }];
+  }
+
+  const shortChunks = [];
+  segs.forEach(s => {
+    const words = s.text.trim().split(/\s+/).filter(w => w.length > 0);
+    if (words.length <= 3) {
+      shortChunks.push({ start: +s.start.toFixed(2), end: +s.end.toFixed(2), text: s.text.trim() });
+    } else {
+      const numGroups = Math.ceil(words.length / 3);
+      const durPerGroup = (s.end - s.start) / numGroups;
+      for (let i = 0; i < numGroups; i++) {
+        const groupText = words.slice(i * 3, (i + 1) * 3).join(' ');
+        const st = s.start + i * durPerGroup;
+        const et = (i === numGroups - 1) ? s.end : st + durPerGroup;
+        shortChunks.push({ start: +st.toFixed(2), end: +et.toFixed(2), text: groupText });
+      }
+    }
+  });
+
+  return shortChunks;
+}
+
+async function extractAudioWAV(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const tempCtx = new AudioContext();
+  let audioBuffer;
+  try { audioBuffer = await tempCtx.decodeAudioData(arrayBuffer); } finally { await tempCtx.close(); }
+  const TARGET_SR   = 16000;
+  const numSamples  = Math.ceil(audioBuffer.duration * TARGET_SR);
+  const offCtx      = new OfflineAudioContext(1, numSamples, TARGET_SR);
+  const src         = offCtx.createBufferSource();
+  src.buffer        = audioBuffer;
+  src.connect(offCtx.destination);
+  src.start(0);
+  const rendered = await offCtx.startRendering();
+  
+  const numCh = 1, sr = rendered.sampleRate, numS = rendered.length, bits = 16, bytes = bits / 8;
+  const ds = numCh * numS * bytes, buf = new ArrayBuffer(44 + ds), view = new DataView(buf);
+  const ws = (o, str) => { for (let i = 0; i < str.length; i++) view.setUint8(o + i, str.charCodeAt(i)); };
+  ws(0,'RIFF'); view.setUint32(4, 36 + ds, true); ws(8,'WAVE'); ws(12,'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, numCh, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * numCh * bytes, true);
+  view.setUint16(32, numCh * bytes, true); view.setUint16(34, bits, true);
+  ws(36,'data'); view.setUint32(40, ds, true);
+  const samples = rendered.getChannelData(0);
+  for (let i = 0; i < numS; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+async function groqTranscribe(blob, key) {
+  const fd = new FormData();
+  const ext = blob.type.includes('mpeg') || blob.type.includes('mp3') ? 'audio.mp3'
+            : blob.type.includes('mp4')  ? 'audio.mp4'
+            : blob.type.includes('webm') ? 'audio.webm'
+            : blob.type.includes('wav')  ? 'audio.wav' : 'audio.mp4';
+  fd.append('file', blob, ext);
+  fd.append('model', 'whisper-large-v3');
+  fd.append('language', 'hi');
+  fd.append('response_format', 'verbose_json');
+  fd.append('timestamp_granularities[]', 'word');
+  fd.append('timestamp_granularities[]', 'segment');
+
+  const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + key }, body: fd,
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error?.message || 'Groq API error ' + r.status);
+  }
+  return r.json();
+}
+
+async function dsHinglish(chunks, key) {
+  if (!chunks || !chunks.length) throw new Error('No speech detected. Try a video with clear Hindi audio.');
+
+  const inp = chunks.map(s => ({
+    start: +parseFloat(s.start).toFixed(2),
+    end:   +parseFloat(s.end).toFixed(2),
+    hindi: s.text.trim(),
+  }));
+
+  const prompt = `You are an expert Hinglish subtitle writer for Indian YouTube Shorts and Reels.
+
+TASK: Convert short Hindi transcript chunks to Hinglish (Hindi written in Roman/English script).
+
+RULES:
+1. Transliterate phonetically into Roman script (e.g., "namaste", "kya haal hai", "bhai log")
+2. Keep English words as-is
+3. Sound natural and colloquial — like a Mumbai/Delhi vlogger speaks on camera
+4. KEEP EVERY SUBTITLE SHORT: Max 2 to 4 words per chunk! NEVER group into long sentences or paragraphs!
+5. Preserve timestamps EXACTLY
+
+INPUT:
+${JSON.stringify(inp, null, 2)}
+
+Return ONLY a valid JSON array with matching timestamps:
+[{"start":0.0,"end":0.8,"text":"namaste dosto"},{"start":0.8,"end":1.5,"text":"kaise hain aap"},...]`;
+
+  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'llama-3.1-8b-instant',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.25, max_tokens: 4096,
+    }),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error('Groq key is invalid. Please create a fresh key at console.groq.com');
+    throw new Error(e.error?.message || ('Groq API error ' + r.status));
+  }
+  const data = await r.json();
+  const raw  = data.choices[0].message.content.trim();
+  const m    = raw.match(/\[[\s\S]*\]/);
+  if (!m) throw new Error('LLM returned unexpected format. Please try again.');
+  return JSON.parse(m[0]).filter(s => s.text !== undefined);
+}
+
+// ─────────────────────────────────────────────────────────
+//  EDITOR & STYLING
+// ─────────────────────────────────────────────────────────
+function initEditor() {
+  const v = document.getElementById('pvideo');
+  v.src = S.videoUrl;
+  v.addEventListener('timeupdate', onTick);
+  renderSubList(); applyStyle(); initDrag();
+  if (S.subs.length > 0) showSub(S.subs[0], false);
+}
+
+function onTick() {
+  const v = document.getElementById('pvideo'), ct = v.currentTime;
+  const idx = S.subs.findIndex(s => ct >= s.start && ct <= s.end);
+  if (idx !== S.curIdx) {
+    S.curIdx = idx;
+    if (idx >= 0) showSub(S.subs[idx], true); else clearSub();
+    document.querySelectorAll('.sub-item').forEach((el, i) => el.classList.toggle('cur', i === idx));
+  }
+  if (idx >= 0) updateKaraoke(S.subs[idx], ct);
+}
+
+function showSub(sub, animate) {
+  const sd = document.getElementById('sub-display'), st = document.getElementById('sub-text');
+  let txt = sub.text;
+  if (S.st.transform === 'uppercase') txt = txt.toUpperCase();
+  else if (S.st.transform === 'lowercase') txt = txt.toLowerCase();
+  
+  if (S.st.anim === 'karaoke' || S.st.orient === 'stacked') {
+    st.innerHTML = txt.split(' ').map((w, i) => `<span class="kword" data-i="${i}">${w}</span>`).join(' ');
+  } else st.textContent = txt;
+  
+  sd.style.display = 'block';
+  if (animate && S.st.anim !== 'none') {
+    sd.className = 'an-' + S.st.anim;
+    void sd.offsetWidth;
+  }
+}
+
+function updateKaraoke(sub, ct) {
+  const words = document.querySelectorAll('#sub-text .kword');
+  const prog = (ct - sub.start) / (sub.end - sub.start);
+  const wi = Math.min(words.length - 1, Math.floor(prog * words.length));
+  words.forEach((w, i) => {
+    const isHi = i === wi;
+    w.classList.toggle('khi', isHi);
+    w.style.color = (isHi && S.st.anim === 'karaoke') ? S.st.hlColor : S.st.color;
+  });
+}
+
+function clearSub() { document.getElementById('sub-text').innerHTML = ''; }
+function togglePlay() { const v = document.getElementById('pvideo'); v.paused ? v.play() : v.pause(); }
+function restartVid() { const v = document.getElementById('pvideo'); v.currentTime = 0; v.play(); }
+function seekVid(e) { const v = document.getElementById('pvideo'); v.currentTime = (e.clientX / document.getElementById('prog-wrap').offsetWidth) * v.duration; }
+
+function fmtTPrecise(s) {
+  if (isNaN(s) || s === null) return '0:00.00';
+  const m = Math.floor(s / 60);
+  const sc = (s % 60).toFixed(2);
+  const [sec, ms] = sc.split('.');
+  return m + ':' + String(sec).padStart(2, '0') + '.' + ms;
+}
+
+function renderSubList() {
+  const list = document.getElementById('sub-list');
+  if (!list) return;
+  list.innerHTML = '';
+  S.subs.forEach((sub, i) => {
+    const el = document.createElement('div');
+    el.className = 'sub-item'; el.dataset.idx = i;
+    if (i === S.curIdx) el.classList.add('cur');
+    el.innerHTML = `
+      <div class="sub-times">
+        <span class="sub-ts-tag">⏱ ${fmtTPrecise(sub.start)} → ${fmtTPrecise(sub.end)}</span>
+        <span class="sub-num">#${i+1}</span>
+      </div>
+      <div class="sub-time-inputs">
+        <label class="sub-t-lbl">Start <input class="sub-t" value="${fmtTPrecise(sub.start)}" data-i="${i}" data-f="start" onchange="updTime(this)"></label>
+        <label class="sub-t-lbl">End <input class="sub-t" value="${fmtTPrecise(sub.end)}" data-i="${i}" data-f="end" onchange="updTime(this)"></label>
+      </div>
+      <textarea class="sub-ta" data-i="${i}" oninput="updText(this)" onchange="updText(this)" rows="2" placeholder="Subtitle text...">${sub.text}</textarea>
+      <div class="sub-btns">
+        <button class="sub-btn" onclick="jumpTo(${i})">▶ Jump</button>
+        <button class="sub-btn" onclick="setSubStartCurrent(${i})">📍 Set Start</button>
+        <button class="sub-btn" onclick="setSubEndCurrent(${i})">📍 Set End</button>
+        <button class="sub-btn del" onclick="delSub(${i})">🗑 Delete</button>
+      </div>`;
+    list.appendChild(el);
+  });
+  const badge = document.getElementById('sub-badge');
+  if (badge) badge.textContent = '✓ ' + S.subs.length + ' subtitles';
+}
+
+function setSubStartCurrent(i) {
+  const v = document.getElementById('pvideo');
+  if (v) {
+    S.subs[i].start = +v.currentTime.toFixed(2);
+    renderSubList();
+    toast(`Subtitle #${i+1} start time set to ${fmtTPrecise(S.subs[i].start)}`, 'ok');
+  }
+}
+
+function setSubEndCurrent(i) {
+  const v = document.getElementById('pvideo');
+  if (v) {
+    S.subs[i].end = +v.currentTime.toFixed(2);
+    renderSubList();
+    toast(`Subtitle #${i+1} end time set to ${fmtTPrecise(S.subs[i].end)}`, 'ok');
+  }
+}
+
+function parseT(str) {
+  if (!str) return 0;
+  if (str.includes(':')) {
+    const parts = str.split(':');
+    const m = parseFloat(parts[0]) || 0;
+    const s = parseFloat(parts[1]) || 0;
+    return m * 60 + s;
+  }
+  return parseFloat(str) || 0;
+}
+
+function updTime(el) {
+  const i = +el.dataset.i;
+  const f = el.dataset.f;
+  const val = parseT(el.value);
+  if (!isNaN(val) && S.subs[i]) {
+    S.subs[i][f] = val;
+    renderSubList();
+  }
+}
+
+function updText(el) {
+  const i = +el.dataset.i;
+  if (S.subs[i]) {
+    S.subs[i].text = el.value;
+    if (i === S.curIdx) showSub(S.subs[i], false);
+  }
+}
+
+function jumpTo(i) {
+  const v = document.getElementById('pvideo');
+  if (v && S.subs[i]) {
+    v.currentTime = S.subs[i].start;
+    v.play();
+  }
+}
+
+function delSub(i) {
+  S.subs.splice(i, 1);
+  renderSubList();
+  toast('Subtitle deleted', 'warn');
+}
+
+function addSub() {
+  const v = document.getElementById('pvideo');
+  const ct = v ? v.currentTime : 0;
+  S.subs.push({ id: Date.now(), start: +ct.toFixed(2), end: +(ct + 2).toFixed(2), text: 'New Subtitle' });
+  S.subs.sort((a, b) => a.start - b.start);
+  renderSubList();
+  toast('New subtitle added at current time', 'ok');
+}
+
+function initDrag() {
+  const sd = document.getElementById('sub-display');
+  const ov = document.getElementById('sub-overlay') || (sd ? sd.parentElement : null);
+  if (!sd || !ov) return;
+
+  const dragStart = (x, y) => { isDrag = true; ov.classList.add('dragging-now'); };
+  const dragMove  = (x, y) => {
+    if (!isDrag) return;
+    const r = ov.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    S.pos.x = Math.max(5, Math.min(95, ((x - r.left) / r.width) * 100));
+    S.pos.y = Math.max(5, Math.min(95, ((y - r.top)  / r.height) * 100));
+    sd.style.left = S.pos.x + '%';
+    sd.style.top  = S.pos.y + '%';
+    const gh = document.getElementById('gh');
+    const gv = document.getElementById('gv');
+    if (gh) gh.style.top  = S.pos.y + '%';
+    if (gv) gv.style.left = S.pos.x + '%';
+
+    const posXSl = document.getElementById('pos-x-sl');
+    const posYSl = document.getElementById('pos-y-sl');
+    if (posXSl) posXSl.value = Math.round(S.pos.x);
+    if (posYSl) posYSl.value = Math.round(S.pos.y);
+    const posXVal = document.getElementById('pos-x-val');
+    const posYVal = document.getElementById('pos-y-val');
+    if (posXVal) posXVal.textContent = Math.round(S.pos.x) + '%';
+    if (posYVal) posYVal.textContent = Math.round(S.pos.y) + '%';
+  };
+  const dragEnd = () => { isDrag = false; ov.classList.remove('dragging-now'); };
+
+  sd.addEventListener('mousedown',  e => { dragStart(e.clientX, e.clientY); e.stopPropagation(); });
+  sd.addEventListener('touchstart', e => { dragStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  document.addEventListener('mousemove', e => dragMove(e.clientX, e.clientY));
+  document.addEventListener('touchmove', e => { if (isDrag) { e.preventDefault(); dragMove(e.touches[0].clientX, e.touches[0].clientY); } }, { passive: false });
+  document.addEventListener('mouseup', dragEnd);
+  document.addEventListener('touchend', dragEnd);
+}
+
+function setPos(x, y, el) {
+  S.pos.x = x; S.pos.y = y;
+  const posXSl = document.getElementById('pos-x-sl');
+  const posYSl = document.getElementById('pos-y-sl');
+  if (posXSl) posXSl.value = x;
+  if (posYSl) posYSl.value = y;
+  const posXVal = document.getElementById('pos-x-val');
+  const posYVal = document.getElementById('pos-y-val');
+  if (posXVal) posXVal.textContent = x + '%';
+  if (posYVal) posYVal.textContent = y + '%';
+  if (el) {
+    const grid = document.getElementById('pos-grid');
+    if (grid) grid.querySelectorAll('.opt').forEach(b => b.classList.remove('on'));
+    el.classList.add('on');
+  }
+  applyStyle();
+}
+
+function updatePosX(v) {
+  S.pos.x = +v;
+  document.getElementById('pos-x-val').textContent = v + '%';
+  applyStyle();
+}
+
+function updatePosY(v) {
+  S.pos.y = +v;
+  document.getElementById('pos-y-val').textContent = v + '%';
+  applyStyle();
+}
+
+function resetPos() {
+  setPos(50, 80);
+  const grid = document.getElementById('pos-grid');
+  if (grid) {
+    grid.querySelectorAll('.opt').forEach(b => b.classList.remove('on'));
+    const btns = grid.querySelectorAll('.opt');
+    if (btns[7]) btns[7].classList.add('on');
+  }
+  toast('Position reset to Bottom Center', 'ok');
+}
+
+function applyStyle() {
+  const sd = document.getElementById('sub-display');
+  const { size, font, fw, color, bg, bgColor, bgOpacity, shadow, orient, transform, letterSpacing, strokeWidth, strokeColor } = S.st;
+
+  sd.style.left       = S.pos.x + '%';
+  sd.style.top        = S.pos.y + '%';
+  sd.style.fontSize   = size + 'px';
+  sd.style.fontFamily = "'" + font + "', sans-serif";
+  sd.style.fontWeight = fw;
+  sd.style.color      = color;
+  sd.style.textTransform = transform;
+  sd.style.letterSpacing = letterSpacing + 'px';
+
+  if (strokeWidth > 0) {
+    sd.style.webkitTextStroke = strokeWidth + 'px ' + strokeColor;
+  } else {
+    sd.style.webkitTextStroke = 'none';
+  }
+
+  sd.classList.remove('or-horizontal', 'or-vertical', 'or-stacked', 'or-sidebar');
+  sd.classList.add('or-' + orient);
+
+  sd.classList.remove('bg-pill', 'bg-solid', 'bg-none');
+  sd.classList.add('bg-' + bg);
+
+  if (bg !== 'none') {
+    const rgb = hexToRgb(bgColor);
+    sd.style.backgroundColor = `rgba(${rgb.r},${rgb.g},${rgb.b},${bgOpacity / 100})`;
+  } else {
+    sd.style.backgroundColor = 'transparent';
+  }
+
+  const shadows = {
+    none:  'none',
+    soft:  '0 2px 10px rgba(0,0,0,0.85), 0 0 30px rgba(0,0,0,0.4)',
+    heavy: '2px 2px 0 #000,-2px 2px 0 #000,2px -2px 0 #000,-2px -2px 0 #000,0 3px 6px rgba(0,0,0,0.9)',
+    glow:  `0 0 12px ${color}, 0 0 26px ${color}`,
+  };
+  sd.style.textShadow = shadows[shadow] || shadows.soft;
+}
+
+function setOrient(v, el) {
+  S.st.orient = v;
+  document.getElementById('orient-opts').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on');
+  if (S.curIdx >= 0) showSub(S.subs[S.curIdx], false);
+  applyStyle();
+}
+function setCase(v, el) {
+  S.st.transform = v;
+  document.getElementById('case-opts').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on');
+  if (S.curIdx >= 0) showSub(S.subs[S.curIdx], false);
+  applyStyle();
+}
+function setSize(v, el) {
+  S.st.size = v;
+  el.closest('.opt-g2').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on'); applyStyle();
+}
+function setFont(v, el) {
+  S.st.font = v;
+  document.getElementById('font-list').querySelectorAll('.font-opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on'); applyStyle();
+}
+function setFW(v) {
+  S.st.fw = +v;
+  document.getElementById('fw-val').textContent = v; applyStyle();
+}
+function setTxtClr(v) {
+  S.st.color = v;
+  document.getElementById('txt-sw').style.background = v;
+  document.getElementById('txt-clr-lbl').textContent = v.toUpperCase(); applyStyle();
+}
+function setStrokeClr(v) {
+  S.st.strokeColor = v;
+  document.getElementById('stroke-sw').style.background = v;
+  document.getElementById('stroke-clr-lbl').textContent = v.toUpperCase(); applyStyle();
+}
+function setHlClr(v) {
+  S.st.hlColor = v;
+  document.getElementById('hl-sw').style.background = v;
+  document.getElementById('hl-clr-lbl').textContent = v.toUpperCase(); applyStyle();
+}
+function setStrokeWidth(v) {
+  S.st.strokeWidth = +v;
+  document.getElementById('stroke-val').textContent = v + 'px'; applyStyle();
+}
+function setLetterSpace(v) {
+  S.st.letterSpacing = +v;
+  document.getElementById('ls-val').textContent = v + 'px'; applyStyle();
+}
+function setBg(v, el) {
+  S.st.bg = v;
+  document.getElementById('bg-opts').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on'); applyStyle();
+}
+function setBgClr(v) {
+  S.st.bgColor = v;
+  document.getElementById('bg-sw').style.background = v;
+  document.getElementById('bg-clr-lbl').textContent = v.toUpperCase(); applyStyle();
+}
+function setBgOpacity(v) {
+  S.st.bgOpacity = +v;
+  document.getElementById('bg-op-val').textContent = v + '%'; applyStyle();
+}
+function setShadow(v, el) {
+  S.st.shadow = v;
+  document.getElementById('shadow-opts').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on'); applyStyle();
+}
+function setAnim(v, el) {
+  S.st.anim = v;
+  document.getElementById('anim-opts').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on');
+}
+
+function applyPreset(name) {
+  if (name === 'normal') {
+    S.st.font = 'Inter'; S.st.fw = 600; S.st.size = 36; S.st.transform = 'none';
+    S.st.color = '#FFFFFF'; S.st.strokeWidth = 0; S.st.strokeColor = '#000000';
+    S.st.bg = 'pill'; S.st.bgColor = '#000000'; S.st.bgOpacity = 75;
+    S.st.orient = 'horizontal'; S.st.shadow = 'soft'; S.st.anim = 'none'; S.st.letterSpacing = 0;
+  } else if (name === 'hormozi') {
+    S.st.font = 'Poppins'; S.st.fw = 900; S.st.transform = 'uppercase';
+    S.st.strokeWidth = 4; S.st.strokeColor = '#000000'; S.st.color = '#FFFFFF';
+    S.st.bg = 'none'; S.st.orient = 'horizontal'; S.st.hlColor = '#FFE066'; S.st.anim = 'karaoke';
+  } else if (name === 'neon') {
+    S.st.font = 'Inter'; S.st.fw = 800; S.st.transform = 'none';
+    S.st.color = '#00F0FF'; S.st.shadow = 'glow'; S.st.bg = 'pill';
+    S.st.bgColor = '#07070F'; S.st.bgOpacity = 85; S.st.strokeWidth = 0; S.st.hlColor = '#FF2E93'; S.st.anim = 'fade';
+  } else if (name === 'manga') {
+    S.st.font = 'Baloo 2'; S.st.fw = 800; S.st.orient = 'vertical'; S.st.transform = 'none';
+    S.st.strokeWidth = 3; S.st.strokeColor = '#000000'; S.st.color = '#FFFFFF'; S.st.bg = 'none'; S.st.shadow = 'heavy'; S.st.anim = 'bounce';
+  } else if (name === 'stacked') {
+    S.st.font = 'Poppins'; S.st.fw = 800; S.st.orient = 'stacked'; S.st.transform = 'uppercase';
+    S.st.color = '#FFFFFF'; S.st.strokeWidth = 3; S.st.strokeColor = '#000000'; S.st.bg = 'none'; S.st.hlColor = '#00F0FF'; S.st.anim = 'pop';
+  } else if (name === 'sidebar') {
+    S.st.font = 'Poppins'; S.st.fw = 900; S.st.orient = 'sidebar'; S.st.transform = 'uppercase';
+    S.st.color = '#FFE066'; S.st.strokeWidth = 2; S.st.strokeColor = '#000000'; S.st.bg = 'pill'; S.st.bgColor = '#000000'; S.st.bgOpacity = 80; S.st.anim = 'slide';
+  } else if (name === 'minimal') {
+    S.st.font = 'Inter'; S.st.fw = 600; S.st.orient = 'horizontal'; S.st.transform = 'none';
+    S.st.color = '#FFFFFF'; S.st.bg = 'pill'; S.st.bgColor = '#000000'; S.st.bgOpacity = 72; S.st.strokeWidth = 0; S.st.shadow = 'soft'; S.st.anim = 'fade';
+  }
+
+  document.getElementById('fw-sl').value = S.st.fw;
+  document.getElementById('fw-val').textContent = S.st.fw;
+  document.getElementById('stroke-sl').value = S.st.strokeWidth;
+  document.getElementById('stroke-val').textContent = S.st.strokeWidth + 'px';
+  document.getElementById('txt-sw').style.background = S.st.color;
+  document.getElementById('txt-clr-lbl').textContent = S.st.color.toUpperCase();
+  document.getElementById('stroke-sw').style.background = S.st.strokeColor;
+  document.getElementById('stroke-clr-lbl').textContent = S.st.strokeColor.toUpperCase();
+  document.getElementById('hl-sw').style.background = S.st.hlColor;
+  document.getElementById('hl-clr-lbl').textContent = S.st.hlColor.toUpperCase();
+
+  if (S.curIdx >= 0) showSub(S.subs[S.curIdx], false);
+  applyStyle();
+  toast('Preset applied: ' + name, 'ok');
+}
+
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 0, b: 0 };
+}
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.stab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.tpanel').forEach(p => p.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('tp-' + name).classList.add('on');
+}
+
+function exportBoth() {
+  if (!S.subs.length) { toast('No subtitles to export!', 'warn'); return; }
+  if (!S.videoFile) { toast('No original video file found!', 'err'); return; }
+  const videoName = S.videoFile.name || 'original_video.mp4';
+  dlBlob(S.videoFile, videoName);
+  setTimeout(() => {
+    exportSRT();
+    toast('Exported Package: Original Video + Subtitles! 🚀', 'ok');
+  }, 400);
+}
+
+function exportSRT() {
+  const content = S.subs.map((s, i) => `${i+1}\n${srtT(s.start)} --> ${srtT(s.end)}\n${s.text}\n`).join('\n');
+  dlBlob(new Blob([content], { type: 'text/plain' }), 'hinglishcut_subtitles.srt');
+  toast('SRT file downloaded! 🎉', 'ok');
+}
+
+// ─────────────────────────────────────────────────────────
+//  EXPORT — VIDEO (Canvas + MediaRecorder)
+// ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+//  EXPORT — VIDEO WITH BURNED-IN SUBTITLES (Canvas + MediaRecorder)
+// ─────────────────────────────────────────────────────────
+async function exportVideo() {
+  if (!S.subs.length) { toast('No subtitles to export!', 'warn'); return; }
+
+  // Sync any active text inputs into S.subs before exporting
+  document.querySelectorAll('.sub-ta').forEach(ta => {
+    const i = +ta.dataset.i;
+    if (S.subs[i]) S.subs[i].text = ta.value.trim();
+  });
+
+  const v   = document.getElementById('pvideo');
+  const pg  = document.getElementById('exp-pg');
+  const pf  = document.getElementById('exp-fill');
+  const pt  = document.getElementById('exp-txt');
+
+  pg.classList.add('show'); pf.style.width = '0%';
+  pt.textContent = 'Preparing video canvas...';
+
+  const cv  = document.createElement('canvas');
+  cv.width  = v.videoWidth  || 1080;
+  cv.height = v.videoHeight || 1920;
+  const ctx = cv.getContext('2d');
+
+  v.pause();
+  v.currentTime = 0;
+  await new Promise(r => setTimeout(r, 200));
+
+  let vStream = null;
+  try {
+    if (v.captureStream) vStream = v.captureStream();
+    else if (v.mozCaptureStream) vStream = v.mozCaptureStream();
+  } catch(e) {}
+
+  const cvStream = cv.captureStream(60);
+  const tracks   = [...cvStream.getVideoTracks()];
+  if (vStream && vStream.getAudioTracks && vStream.getAudioTracks().length > 0) {
+    tracks.push(...vStream.getAudioTracks());
+  }
+
+  const outStream = new MediaStream(tracks);
+
+  const mimes = [
+    'video/mp4;codecs=avc1',
+    'video/mp4',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm'
+  ];
+  let mime = '';
+  for (const m of mimes) {
+    if (MediaRecorder.isTypeSupported(m)) { mime = m; break; }
+  }
+
+  const recOptions = { videoBitsPerSecond: 8_000_000 };
+  if (mime) recOptions.mimeType = mime;
+
+  let rec;
+  try { rec = new MediaRecorder(outStream, recOptions); } catch(e) { rec = new MediaRecorder(outStream); }
+
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+  pt.textContent = 'Burning Hinglish subtitles into video... Do not close tab.';
+
+  await new Promise(resolve => {
+    let isRecording = true;
+    rec.onstop = resolve;
+
+    rec.start(100);
+    v.currentTime = 0;
+    const playP = v.play();
+    if (playP !== undefined) playP.catch(() => {});
+
+    function renderFrame() {
+      if (!isRecording) return;
+      if (v.ended || v.currentTime >= (v.duration || 9999) - 0.05) {
+        isRecording = false;
+        if (rec.state !== 'inactive') rec.stop();
+        return;
+      }
+
+      ctx.drawImage(v, 0, 0, cv.width, cv.height);
+
+      const ct  = v.currentTime;
+      const sub = S.subs.find(s => ct >= s.start && ct <= s.end);
+      if (sub && sub.text) drawSubCanvas(ctx, sub, ct, cv.width, cv.height);
+
+      const pct = Math.min(100, (v.currentTime / (v.duration || 1)) * 100);
+      pf.style.width = pct.toFixed(1) + '%';
+      pt.textContent = 'Burning Subtitles: ' + pct.toFixed(0) + '% — do not close tab';
+
+      if ('requestVideoFrameCallback' in v) {
+        v.requestVideoFrameCallback(renderFrame);
+      } else {
+        requestAnimationFrame(renderFrame);
+      }
+    }
+
+    if ('requestVideoFrameCallback' in v) {
+      v.requestVideoFrameCallback(renderFrame);
+    } else {
+      requestAnimationFrame(renderFrame);
+    }
+
+    v.addEventListener('ended', () => {
+      isRecording = false;
+      if (rec.state !== 'inactive') rec.stop();
+    }, { once: true });
+  });
+
+  pg.classList.remove('show');
+
+  const origName = S.videoFile ? S.videoFile.name : '';
+  const isMp4 = mime.includes('mp4') || origName.endsWith('.mp4');
+  const ext = isMp4 ? 'mp4' : 'webm';
+  const finalType = mime || (isMp4 ? 'video/mp4' : 'video/webm');
+  const blob = new Blob(chunks, { type: finalType });
+
+  dlBlob(blob, 'hinglishcut_video_with_subtitles.' + ext);
+  toast(`Export Complete! Downloaded hinglishcut_video_with_subtitles.${ext} (${(blob.size / 1024 / 1024).toFixed(1)} MB) 🎬`, 'ok');
+}
+
+function drawSubCanvas(ctx, sub, ct, W, H) {
+  const { size, font, fw, color, bg, bgColor, bgOpacity, shadow, orient, transform, strokeWidth, strokeColor, hlColor } = S.st;
+  const dispW = document.getElementById('pvideo').offsetWidth || W;
+  const scale = W / dispW;
+  const fs    = size * scale;
+
+  ctx.save();
+  let x = (S.pos.x / 100) * W;
+  let y = (S.pos.y / 100) * H;
+
+  let txt = sub.text;
+  if (transform === 'uppercase') txt = txt.toUpperCase();
+  else if (transform === 'lowercase') txt = txt.toLowerCase();
+  else if (transform === 'capitalize') txt = txt.replace(/\b\w/g, l => l.toUpperCase());
+
+  ctx.font          = fw + ' ' + fs + 'px "' + font + '", sans-serif';
+  ctx.textAlign     = 'center';
+  ctx.textBaseline  = 'middle';
+
+  const sw = strokeWidth * scale;
+
+  if (shadow === 'soft')  { ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 10 * scale; }
+  else if (shadow === 'heavy') { ctx.shadowColor = '#000'; ctx.shadowOffsetX = 2 * scale; ctx.shadowOffsetY = 2 * scale; ctx.shadowBlur = 0; }
+  else if (shadow === 'glow') { ctx.shadowColor = color; ctx.shadowBlur = 16 * scale; }
+
+  const rgb = hexToRgb(bgColor);
+  const bgFill = `rgba(${rgb.r},${rgb.g},${rgb.b},${bgOpacity/100})`;
+
+  if (orient === 'vertical') {
+    const chars  = txt.split('');
+    const charH  = fs * 1.15;
+    const totalH = chars.length * charH;
+    const pad    = fs * 0.4;
+
+    if (bg === 'pill' || bg === 'solid') {
+      ctx.fillStyle = bgFill;
+      const bw = fs + pad * 1.5;
+      const bh = totalH + pad;
+      roundRect(ctx, x - bw/2, y - bh/2, bw, bh, bg === 'pill' ? fs * 0.4 : 4);
+      ctx.fill();
+    }
+
+    let startY = y - totalH / 2 + charH / 2;
+    chars.forEach((ch) => {
+      if (sw > 0) {
+        ctx.lineWidth = sw; ctx.strokeStyle = strokeColor;
+        ctx.strokeText(ch, x, startY);
+      }
+      ctx.fillStyle = color;
+      ctx.fillText(ch, x, startY);
+      startY += charH;
+    });
+
+  } else if (orient === 'stacked') {
+    const words  = txt.split(' ');
+    const lineH  = fs * 1.25;
+    const totalH = words.length * lineH;
+    const dur    = sub.end - sub.start;
+    const prog   = (ct - sub.start) / dur;
+    const wi     = Math.min(words.length - 1, Math.floor(prog * words.length));
+    const maxW   = Math.max(...words.map(w => ctx.measureText(w).width));
+    const pad    = fs * 0.4;
+
+    if (bg === 'pill' || bg === 'solid') {
+      ctx.fillStyle = bgFill;
+      roundRect(ctx, x - maxW/2 - pad, y - totalH/2 - pad*0.5, maxW + pad*2, totalH + pad, bg === 'pill' ? fs*0.3 : 4);
+      ctx.fill();
+    }
+
+    let startY = y - totalH / 2 + lineH / 2;
+    words.forEach((w, i) => {
+      const active = (S.st.anim === 'karaoke') && (i === wi);
+      const wColor = active ? hlColor : color;
+      if (sw > 0) {
+        ctx.lineWidth = sw; ctx.strokeStyle = strokeColor;
+        ctx.strokeText(w, x, startY);
+      }
+      ctx.fillStyle = wColor;
+      ctx.fillText(w, x, startY);
+      startY += lineH;
+    });
+
+  } else {
+    if (orient === 'sidebar') {
+      ctx.translate(x, y);
+      ctx.rotate(-Math.PI / 2);
+      x = 0; y = 0;
+    }
+
+    const tw  = ctx.measureText(txt).width;
+    const pad = fs * 0.35;
+
+    if (bg === 'pill' || bg === 'solid') {
+      ctx.fillStyle = bgFill;
+      const bx = x - tw/2 - pad, by = y - fs/2 - pad * 0.5;
+      const bw = tw + pad * 2,   bh = fs + pad;
+      roundRect(ctx, bx, by, bw, bh, bg === 'pill' ? fs * 0.38 : 4);
+      ctx.fill();
+    }
+
+    if (S.st.anim === 'karaoke') {
+      const words = txt.split(' ');
+      const dur   = sub.end - sub.start;
+      const prog  = (ct - sub.start) / dur;
+      const wi    = Math.min(words.length - 1, Math.floor(prog * words.length));
+      let cx2     = x - tw / 2;
+      words.forEach((w, i) => {
+        const active = (i === wi);
+        const wColor = active ? hlColor : color;
+        const ww = ctx.measureText(w + ' ').width;
+        if (sw > 0) {
+          ctx.lineWidth = sw; ctx.strokeStyle = strokeColor;
+          ctx.strokeText(w, cx2 + ww / 2, y);
+        }
+        ctx.fillStyle = wColor;
+        ctx.fillText(w, cx2 + ww / 2, y);
+        cx2 += ww;
+      });
+    } else {
+      if (sw > 0) {
+        ctx.lineWidth = sw; ctx.strokeStyle = strokeColor;
+        ctx.strokeText(txt, x, y);
+      }
+      ctx.fillStyle = color;
+      ctx.fillText(txt, x, y);
+    }
+  }
+
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────
+//  UTILITIES
+// ─────────────────────────────────────────────────────────
+function roundRect(ctx, x, y, width, height, radius = 5) {
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+function fmtT(s) {
+  if (isNaN(s)) return '0:00';
+  return Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
+}
+function parseTm(str) {
+  if (str.includes(':')) { const [m,s] = str.split(':'); return +m*60 + +s; }
+  return parseFloat(str);
+}
+function srtT(s) {
+  const h  = Math.floor(s/3600);
+  const m  = Math.floor((s%3600)/60);
+  const sc = Math.floor(s%60);
+  const ms = Math.round((s%1)*1000);
+  const p  = n => String(n).padStart(2,'0');
+  return p(h)+':'+p(m)+':'+p(sc)+','+String(ms).padStart(3,'0');
+}
+function dlBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+function toast(msg, type = '') {
+  const box = document.getElementById('toasts');
+  const t   = document.createElement('div');
+  t.className = 'toast ' + type;
+  const ico = { ok:'✅', err:'❌', warn:'⚠️' };
+  t.innerHTML = '<span>' + (ico[type]||'ℹ️') + '</span><span>' + msg + '</span>';
+  box.appendChild(t);
+  setTimeout(() => {
+    t.style.animation = 'tout 0.28s ease forwards';
+    setTimeout(() => t.remove(), 300);
+  }, 3600);
+}
+</script>
+</body>
+</html>
