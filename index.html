@@ -7,7 +7,7 @@
   <meta name="description" content="Free AI tool to auto-generate Hinglish subtitles for your Hindi reels. Transcribe audio with Groq Whisper, convert to Hinglish with DeepSeek. Animate, style and export.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Poppins:wght@600;700;800;900&family=Baloo+2:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Inter:wght@300;400;500;600;700;800;900&family=Montserrat:wght@600;700;800;900&family=Outfit:wght@600;700;800&family=Poppins:wght@600;700;800;900&family=Baloo+2:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <!-- No ffmpeg needed — using Web Audio API for audio extraction -->
   <style>
   /* ── RESET ───────────────────────────────────────────── */
@@ -754,6 +754,7 @@
             <div class="preset-grid">
               <div class="preset-chip" onclick="applyPreset('normal')">✨ Normal / Clean</div>
               <div class="preset-chip" onclick="applyPreset('hormozi')">🔥 Hormozi</div>
+              <div class="preset-chip" onclick="applyPreset('capcut')">🎤 CapCut Yellow</div>
               <div class="preset-chip" onclick="applyPreset('neon')">⚡ Cyber Neon</div>
               <div class="preset-chip" onclick="applyPreset('manga')">🎌 Vertical Reel</div>
               <div class="preset-chip" onclick="applyPreset('stacked')">🥞 Word Stack</div>
@@ -787,11 +788,16 @@
           <!-- FONT SIZE -->
           <div class="ssec">
             <div class="ssec-title">Font Size</div>
-            <div class="opt-g2">
-              <div class="opt" onclick="setSize(24,this)">Small <small style="opacity:.5">(24)</small></div>
-              <div class="opt on" onclick="setSize(36,this)">Medium <small style="opacity:.5">(36)</small></div>
-              <div class="opt" onclick="setSize(48,this)">Large <small style="opacity:.5">(48)</small></div>
-              <div class="opt" onclick="setSize(64,this)">XL <small style="opacity:.5">(64)</small></div>
+            <div class="opt-g2" style="margin-bottom:8px">
+              <div class="opt" onclick="setSize(30,this)">Small <small style="opacity:.5">(30)</small></div>
+              <div class="opt on" onclick="setSize(44,this)">Medium <small style="opacity:.5">(44)</small></div>
+              <div class="opt" onclick="setSize(58,this)">Large <small style="opacity:.5">(58)</small></div>
+              <div class="opt" onclick="setSize(72,this)">Giant <small style="opacity:.5">(72)</small></div>
+            </div>
+            <div class="sl-row">
+              <span class="sl-lbl" style="width:75px">Custom Size</span>
+              <input type="range" id="size-sl" min="20" max="100" step="2" value="44" oninput="setSize(this.value, null)">
+              <span class="sl-val" id="size-val">44px</span>
             </div>
           </div>
 
@@ -799,17 +805,29 @@
           <div class="ssec">
             <div class="ssec-title">Font Family</div>
             <div style="display:flex;flex-direction:column;gap:6px" id="font-list">
+              <div class="font-opt" onclick="setFont('Anton',this)">
+                <span class="fnm">Anton 🔥</span><span class="fpv" style="font-family:'Anton',sans-serif">NAMASTE YAAR!</span>
+              </div>
+              <div class="font-opt" onclick="setFont('Montserrat',this)">
+                <span class="fnm">Montserrat</span><span class="fpv" style="font-family:'Montserrat',sans-serif">Namaste yaar!</span>
+              </div>
+              <div class="font-opt" onclick="setFont('Bebas Neue',this)">
+                <span class="fnm">Bebas Neue 🥞</span><span class="fpv" style="font-family:'Bebas Neue',sans-serif">NAMASTE YAAR!</span>
+              </div>
+              <div class="font-opt" onclick="setFont('Outfit',this)">
+                <span class="fnm">Outfit ⚡</span><span class="fpv" style="font-family:'Outfit',sans-serif">Namaste yaar!</span>
+              </div>
               <div class="font-opt on" onclick="setFont('Inter',this)">
-                <span class="fnm">Inter</span><span class="fpv" style="font-family:'Inter'">Namaste yaar!</span>
+                <span class="fnm">Inter</span><span class="fpv" style="font-family:'Inter',sans-serif">Namaste yaar!</span>
               </div>
               <div class="font-opt" onclick="setFont('Poppins',this)">
-                <span class="fnm">Poppins</span><span class="fpv" style="font-family:'Poppins'">Namaste yaar!</span>
+                <span class="fnm">Poppins</span><span class="fpv" style="font-family:'Poppins',sans-serif">Namaste yaar!</span>
               </div>
               <div class="font-opt" onclick="setFont('Baloo 2',this)">
-                <span class="fnm">Baloo 2 ⭐</span><span class="fpv" style="font-family:'Baloo 2'">Namaste yaar!</span>
+                <span class="fnm">Baloo 2 ⭐</span><span class="fpv" style="font-family:'Baloo 2',sans-serif">Namaste yaar!</span>
               </div>
               <div class="font-opt" onclick="setFont('Nunito',this)">
-                <span class="fnm">Nunito</span><span class="fpv" style="font-family:'Nunito'">Namaste yaar!</span>
+                <span class="fnm">Nunito</span><span class="fpv" style="font-family:'Nunito',sans-serif">Namaste yaar!</span>
               </div>
             </div>
           </div>
@@ -1529,19 +1547,27 @@ function resetPos() {
 
 function applyStyle() {
   const sd = document.getElementById('sub-display');
+  if (!sd) return;
+  const pvideo = document.getElementById('pvideo');
+  const dispW  = pvideo ? (pvideo.offsetWidth || 1080) : 1080;
+
   const { size, font, fw, color, bg, bgColor, bgOpacity, shadow, orient, transform, letterSpacing, strokeWidth, strokeColor } = S.st;
 
-  sd.style.left       = S.pos.x + '%';
-  sd.style.top        = S.pos.y + '%';
-  sd.style.fontSize   = size + 'px';
-  sd.style.fontFamily = "'" + font + "', sans-serif";
-  sd.style.fontWeight = fw;
-  sd.style.color      = color;
-  sd.style.textTransform = transform;
-  sd.style.letterSpacing = letterSpacing + 'px';
+  // Normalized font & stroke scaling relative to 1080p baseline width
+  const fontPx   = Math.max(10, (size / 1080) * dispW);
+  const strokePx = (strokeWidth / 1080) * dispW;
 
-  if (strokeWidth > 0) {
-    sd.style.webkitTextStroke = strokeWidth + 'px ' + strokeColor;
+  sd.style.left          = S.pos.x + '%';
+  sd.style.top           = S.pos.y + '%';
+  sd.style.fontSize      = fontPx + 'px';
+  sd.style.fontFamily    = "'" + font + "', sans-serif";
+  sd.style.fontWeight    = fw;
+  sd.style.color         = color;
+  sd.style.textTransform = transform;
+  sd.style.letterSpacing = ((letterSpacing / 1080) * dispW) + 'px';
+
+  if (strokePx > 0) {
+    sd.style.webkitTextStroke = strokePx.toFixed(1) + 'px ' + strokeColor;
   } else {
     sd.style.webkitTextStroke = 'none';
   }
@@ -1559,11 +1585,12 @@ function applyStyle() {
     sd.style.backgroundColor = 'transparent';
   }
 
+  const scale = dispW / 1080;
   const shadows = {
     none:  'none',
-    soft:  '0 2px 10px rgba(0,0,0,0.85), 0 0 30px rgba(0,0,0,0.4)',
-    heavy: '2px 2px 0 #000,-2px 2px 0 #000,2px -2px 0 #000,-2px -2px 0 #000,0 3px 6px rgba(0,0,0,0.9)',
-    glow:  `0 0 12px ${color}, 0 0 26px ${color}`,
+    soft:  `0 ${Math.max(1, 2*scale)}px ${Math.max(2, 10*scale)}px rgba(0,0,0,0.85), 0 0 ${Math.max(4, 30*scale)}px rgba(0,0,0,0.4)`,
+    heavy: `${Math.max(1, 2*scale)}px ${Math.max(1, 2*scale)}px 0 #000,-${Math.max(1, 2*scale)}px ${Math.max(1, 2*scale)}px 0 #000,${Math.max(1, 2*scale)}px -${Math.max(1, 2*scale)}px 0 #000,-${Math.max(1, 2*scale)}px -${Math.max(1, 2*scale)}px 0 #000`,
+    glow:  `0 0 ${Math.max(4, 12*scale)}px ${color}, 0 0 ${Math.max(8, 26*scale)}px ${color}`,
   };
   sd.style.textShadow = shadows[shadow] || shadows.soft;
 }
@@ -1583,9 +1610,16 @@ function setCase(v, el) {
   applyStyle();
 }
 function setSize(v, el) {
-  S.st.size = v;
-  el.closest('.opt-g2').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
-  el.classList.add('on'); applyStyle();
+  S.st.size = +v;
+  const sizeSl = document.getElementById('size-sl');
+  const sizeVal = document.getElementById('size-val');
+  if (sizeSl) sizeSl.value = v;
+  if (sizeVal) sizeVal.textContent = v + 'px';
+  if (el) {
+    el.closest('.opt-g2').querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
+    el.classList.add('on');
+  }
+  applyStyle();
 }
 function setFont(v, el) {
   S.st.font = v;
@@ -1646,31 +1680,40 @@ function setAnim(v, el) {
 
 function applyPreset(name) {
   if (name === 'normal') {
-    S.st.font = 'Inter'; S.st.fw = 600; S.st.size = 36; S.st.transform = 'none';
+    S.st.font = 'Inter'; S.st.fw = 600; S.st.size = 44; S.st.transform = 'none';
     S.st.color = '#FFFFFF'; S.st.strokeWidth = 0; S.st.strokeColor = '#000000';
     S.st.bg = 'pill'; S.st.bgColor = '#000000'; S.st.bgOpacity = 75;
     S.st.orient = 'horizontal'; S.st.shadow = 'soft'; S.st.anim = 'none'; S.st.letterSpacing = 0;
   } else if (name === 'hormozi') {
-    S.st.font = 'Poppins'; S.st.fw = 900; S.st.transform = 'uppercase';
-    S.st.strokeWidth = 4; S.st.strokeColor = '#000000'; S.st.color = '#FFFFFF';
-    S.st.bg = 'none'; S.st.orient = 'horizontal'; S.st.hlColor = '#FFE066'; S.st.anim = 'karaoke';
+    S.st.font = 'Anton'; S.st.fw = 800; S.st.size = 48; S.st.transform = 'uppercase';
+    S.st.strokeWidth = 4; S.st.strokeColor = '#000000'; S.st.color = '#FFE600';
+    S.st.bg = 'none'; S.st.orient = 'horizontal'; S.st.shadow = 'heavy'; S.st.hlColor = '#FFFFFF'; S.st.anim = 'bounce';
+  } else if (name === 'capcut') {
+    S.st.font = 'Montserrat'; S.st.fw = 800; S.st.size = 44; S.st.transform = 'uppercase';
+    S.st.strokeWidth = 3; S.st.strokeColor = '#000000'; S.st.color = '#FFFFFF';
+    S.st.bg = 'none'; S.st.orient = 'horizontal'; S.st.shadow = 'soft'; S.st.hlColor = '#FFEB3B'; S.st.anim = 'karaoke';
   } else if (name === 'neon') {
-    S.st.font = 'Inter'; S.st.fw = 800; S.st.transform = 'none';
-    S.st.color = '#00F0FF'; S.st.shadow = 'glow'; S.st.bg = 'pill';
-    S.st.bgColor = '#07070F'; S.st.bgOpacity = 85; S.st.strokeWidth = 0; S.st.hlColor = '#FF2E93'; S.st.anim = 'fade';
+    S.st.font = 'Outfit'; S.st.fw = 700; S.st.size = 44; S.st.transform = 'uppercase';
+    S.st.color = '#00FFFF'; S.st.shadow = 'glow'; S.st.bg = 'none';
+    S.st.strokeWidth = 2; S.st.strokeColor = '#003366'; S.st.hlColor = '#FF00FF'; S.st.anim = 'pop';
   } else if (name === 'manga') {
-    S.st.font = 'Baloo 2'; S.st.fw = 800; S.st.orient = 'vertical'; S.st.transform = 'none';
+    S.st.font = 'Baloo 2'; S.st.fw = 800; S.st.size = 44; S.st.orient = 'vertical'; S.st.transform = 'none';
     S.st.strokeWidth = 3; S.st.strokeColor = '#000000'; S.st.color = '#FFFFFF'; S.st.bg = 'none'; S.st.shadow = 'heavy'; S.st.anim = 'bounce';
   } else if (name === 'stacked') {
-    S.st.font = 'Poppins'; S.st.fw = 800; S.st.orient = 'stacked'; S.st.transform = 'uppercase';
-    S.st.color = '#FFFFFF'; S.st.strokeWidth = 3; S.st.strokeColor = '#000000'; S.st.bg = 'none'; S.st.hlColor = '#00F0FF'; S.st.anim = 'pop';
+    S.st.font = 'Bebas Neue'; S.st.fw = 700; S.st.size = 48; S.st.orient = 'stacked'; S.st.transform = 'uppercase';
+    S.st.color = '#FFFFFF'; S.st.strokeWidth = 3; S.st.strokeColor = '#000000'; S.st.bg = 'none'; S.st.hlColor = '#FFD700'; S.st.anim = 'karaoke';
   } else if (name === 'sidebar') {
-    S.st.font = 'Poppins'; S.st.fw = 900; S.st.orient = 'sidebar'; S.st.transform = 'uppercase';
+    S.st.font = 'Poppins'; S.st.fw = 800; S.st.size = 42; S.st.orient = 'sidebar'; S.st.transform = 'uppercase';
     S.st.color = '#FFE066'; S.st.strokeWidth = 2; S.st.strokeColor = '#000000'; S.st.bg = 'pill'; S.st.bgColor = '#000000'; S.st.bgOpacity = 80; S.st.anim = 'slide';
   } else if (name === 'minimal') {
-    S.st.font = 'Inter'; S.st.fw = 600; S.st.orient = 'horizontal'; S.st.transform = 'none';
-    S.st.color = '#FFFFFF'; S.st.bg = 'pill'; S.st.bgColor = '#000000'; S.st.bgOpacity = 72; S.st.strokeWidth = 0; S.st.shadow = 'soft'; S.st.anim = 'fade';
+    S.st.font = 'Inter'; S.st.fw = 600; S.st.size = 38; S.st.orient = 'horizontal'; S.st.transform = 'none';
+    S.st.color = '#FFFFFF'; S.st.bg = 'pill'; S.st.bgColor = '#000000'; S.st.bgOpacity = 75; S.st.strokeWidth = 0; S.st.shadow = 'soft'; S.st.anim = 'fade';
   }
+
+  const sizeSl = document.getElementById('size-sl');
+  const sizeVal = document.getElementById('size-val');
+  if (sizeSl) sizeSl.value = S.st.size;
+  if (sizeVal) sizeVal.textContent = S.st.size + 'px';
 
   document.getElementById('fw-sl').value = S.st.fw;
   document.getElementById('fw-val').textContent = S.st.fw;
@@ -1740,14 +1783,21 @@ async function exportVideo() {
   pg.classList.add('show'); pf.style.width = '0%';
   pt.textContent = 'Preparing video canvas...';
 
+  const W = v.videoWidth  || 1080;
+  const H = v.videoHeight || 1920;
   const cv  = document.createElement('canvas');
-  cv.width  = v.videoWidth  || 1080;
-  cv.height = v.videoHeight || 1920;
+  cv.width  = W;
+  cv.height = H;
   const ctx = cv.getContext('2d');
 
+  // Pause and seek cleanly to start
   v.pause();
   v.currentTime = 0;
-  await new Promise(r => setTimeout(r, 200));
+  await new Promise(r => {
+    const onSeek = () => { v.removeEventListener('seeked', onSeek); r(); };
+    v.addEventListener('seeked', onSeek);
+    setTimeout(r, 400);
+  });
 
   let vStream = null;
   try {
@@ -1788,26 +1838,34 @@ async function exportVideo() {
 
   await new Promise(resolve => {
     let isRecording = true;
-    rec.onstop = resolve;
+    let hasStarted = false;
 
+    rec.onstop = resolve;
     rec.start(100);
-    v.currentTime = 0;
+
     const playP = v.play();
     if (playP !== undefined) playP.catch(() => {});
 
     function renderFrame() {
       if (!isRecording) return;
-      if (v.ended || v.currentTime >= (v.duration || 9999) - 0.05) {
+
+      if (v.currentTime > 0.1) hasStarted = true;
+
+      // Only stop once video playback actually started AND reached the end
+      if (hasStarted && (v.ended || v.currentTime >= (v.duration || 9999) - 0.08)) {
         isRecording = false;
-        if (rec.state !== 'inactive') rec.stop();
+        if (rec.state !== 'inactive') {
+          try { rec.requestData(); } catch(e) {}
+          rec.stop();
+        }
         return;
       }
 
-      ctx.drawImage(v, 0, 0, cv.width, cv.height);
+      ctx.drawImage(v, 0, 0, W, H);
 
       const ct  = v.currentTime;
       const sub = S.subs.find(s => ct >= s.start && ct <= s.end);
-      if (sub && sub.text) drawSubCanvas(ctx, sub, ct, cv.width, cv.height);
+      if (sub && sub.text) drawSubCanvas(ctx, sub, ct, W, H);
 
       const pct = Math.min(100, (v.currentTime / (v.duration || 1)) * 100);
       pf.style.width = pct.toFixed(1) + '%';
@@ -1828,7 +1886,10 @@ async function exportVideo() {
 
     v.addEventListener('ended', () => {
       isRecording = false;
-      if (rec.state !== 'inactive') rec.stop();
+      if (rec.state !== 'inactive') {
+        try { rec.requestData(); } catch(e) {}
+        rec.stop();
+      }
     }, { once: true });
   });
 
@@ -1846,9 +1907,10 @@ async function exportVideo() {
 
 function drawSubCanvas(ctx, sub, ct, W, H) {
   const { size, font, fw, color, bg, bgColor, bgOpacity, shadow, orient, transform, strokeWidth, strokeColor, hlColor } = S.st;
-  const dispW = document.getElementById('pvideo').offsetWidth || W;
-  const scale = W / dispW;
-  const fs    = size * scale;
+
+  // Normalized font & stroke size for exact 1080p/4K canvas match
+  const fs = (size / 1080) * W;
+  const sw = (strokeWidth / 1080) * W;
 
   ctx.save();
   let x = (S.pos.x / 100) * W;
@@ -1863,11 +1925,11 @@ function drawSubCanvas(ctx, sub, ct, W, H) {
   ctx.textAlign     = 'center';
   ctx.textBaseline  = 'middle';
 
-  const sw = strokeWidth * scale;
+  const scale = W / 1080;
 
-  if (shadow === 'soft')  { ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 10 * scale; }
+  if (shadow === 'soft')       { ctx.shadowColor = 'rgba(0,0,0,0.88)'; ctx.shadowBlur = 10 * scale; }
   else if (shadow === 'heavy') { ctx.shadowColor = '#000'; ctx.shadowOffsetX = 2 * scale; ctx.shadowOffsetY = 2 * scale; ctx.shadowBlur = 0; }
-  else if (shadow === 'glow') { ctx.shadowColor = color; ctx.shadowBlur = 16 * scale; }
+  else if (shadow === 'glow')  { ctx.shadowColor = color; ctx.shadowBlur = 18 * scale; }
 
   const rgb = hexToRgb(bgColor);
   const bgFill = `rgba(${rgb.r},${rgb.g},${rgb.b},${bgOpacity/100})`;
