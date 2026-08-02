@@ -1762,7 +1762,34 @@ function exportSRT() {
 
 // ─────────────────────────────────────────────────────────
 //  EXPORT — VIDEO (Canvas + MediaRecorder)
-// ─────────────────────────────────────────────────────────
+async function fixWebmDuration(blob, durationSec) {
+  if (!durationSec || durationSec <= 0) return blob;
+  try {
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    const durMs = durationSec * 1000;
+
+    // Search for Segment Info Header [0x15, 0x49, 0xA9, 0x66]
+    for (let i = 0; i < Math.min(bytes.length - 12, 8192); i++) {
+      if (bytes[i] === 0x15 && bytes[i+1] === 0x49 && bytes[i+2] === 0xA9 && bytes[i+3] === 0x66) {
+        for (let j = i; j < i + 250 && j < bytes.length - 10; j++) {
+          // Duration Tag [0x44, 0x89]
+          if (bytes[j] === 0x44 && bytes[j+1] === 0x89) {
+            const len = bytes[j+2] & 0x7F;
+            if (len === 4 || len === 8) {
+              const view = new DataView(buffer, j + 3, len);
+              if (len === 4) view.setFloat32(0, durMs, false);
+              else if (len === 8) view.setFloat64(0, durMs, false);
+              return new Blob([buffer], { type: blob.type });
+            }
+          }
+        }
+      }
+    }
+  } catch(e) {}
+  return blob;
+}
+
 // ─────────────────────────────────────────────────────────
 //  EXPORT — VIDEO WITH BURNED-IN SUBTITLES (Canvas + MediaRecorder)
 // ─────────────────────────────────────────────────────────
@@ -1792,6 +1819,7 @@ async function exportVideo() {
 
   // Pause and seek cleanly to start
   v.pause();
+  v.playbackRate = 1.0;
   v.currentTime = 0;
   await new Promise(r => {
     const onSeek = () => { v.removeEventListener('seeked', onSeek); r(); };
@@ -1805,7 +1833,8 @@ async function exportVideo() {
     else if (v.mozCaptureStream) vStream = v.mozCaptureStream();
   } catch(e) {}
 
-  const cvStream = cv.captureStream(60);
+  // 30 FPS standard video encoding prevents CPU overload & stuttering
+  const cvStream = cv.captureStream(30);
   const tracks   = [...cvStream.getVideoTracks()];
   if (vStream && vStream.getAudioTracks && vStream.getAudioTracks().length > 0) {
     tracks.push(...vStream.getAudioTracks());
@@ -1836,6 +1865,8 @@ async function exportVideo() {
 
   pt.textContent = 'Burning Hinglish subtitles into video... Do not close tab.';
 
+  const targetDuration = v.duration || 0;
+
   await new Promise(resolve => {
     let isRecording = true;
     let hasStarted = false;
@@ -1852,7 +1883,7 @@ async function exportVideo() {
       if (v.currentTime > 0.1) hasStarted = true;
 
       // Only stop once video playback actually started AND reached the end
-      if (hasStarted && (v.ended || v.currentTime >= (v.duration || 9999) - 0.08)) {
+      if (hasStarted && (v.ended || v.currentTime >= (targetDuration || 9999) - 0.08)) {
         isRecording = false;
         if (rec.state !== 'inactive') {
           try { rec.requestData(); } catch(e) {}
@@ -1867,7 +1898,7 @@ async function exportVideo() {
       const sub = S.subs.find(s => ct >= s.start && ct <= s.end);
       if (sub && sub.text) drawSubCanvas(ctx, sub, ct, W, H);
 
-      const pct = Math.min(100, (v.currentTime / (v.duration || 1)) * 100);
+      const pct = Math.min(100, (v.currentTime / (targetDuration || 1)) * 100);
       pf.style.width = pct.toFixed(1) + '%';
       pt.textContent = 'Burning Subtitles: ' + pct.toFixed(0) + '% — do not close tab';
 
@@ -1899,7 +1930,10 @@ async function exportVideo() {
   const isMp4 = mime.includes('mp4') || origName.endsWith('.mp4');
   const ext = isMp4 ? 'mp4' : 'webm';
   const finalType = mime || (isMp4 ? 'video/mp4' : 'video/webm');
-  const blob = new Blob(chunks, { type: finalType });
+  
+  let blob = new Blob(chunks, { type: finalType });
+  // Patch EBML duration metadata header so video players show exact timeline duration (e.g. 0:15 / 0:30)
+  blob = await fixWebmDuration(blob, targetDuration);
 
   dlBlob(blob, 'hinglishcut_video_with_subtitles.' + ext);
   toast(`Export Complete! Downloaded hinglishcut_video_with_subtitles.${ext} (${(blob.size / 1024 / 1024).toFixed(1)} MB) 🎬`, 'ok');
