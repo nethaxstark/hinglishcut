@@ -1019,7 +1019,7 @@
 
 <div id="toasts"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/fix-webm-duration@1.0.6/fix-webm-duration.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fix-webm-duration@1.0.6/fix-webm-duration.js"></script>
 <script>
 // ─────────────────────────────────────────────────────────
 //  STATE
@@ -1763,21 +1763,114 @@ function exportSRT() {
 
 // ─────────────────────────────────────────────────────────
 //  EXPORT — VIDEO (Canvas + MediaRecorder)
+// Chrome's MediaRecorder writes MP4 output as fragmented MP4 with the mvhd/tkhd/mdhd
+// duration fields all set to 0 (this is a confirmed Chromium bug, not something we're
+// doing wrong upstream). Players read those fields for the seek bar / total time, so we
+// walk the ISO-BMFF box tree and patch them in place with the duration we already know
+// from the recording itself.
+async function fixMp4Duration(blob, durationSec) {
+  try {
+    const buf = await blob.arrayBuffer();
+    const view = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+    const textDecoder = new TextDecoder('ascii');
+    let movieTimescale = 1000; // fallback; overwritten once we read the real mvhd
+
+    function boxType(offset) {
+      return textDecoder.decode(bytes.subarray(offset + 4, offset + 8));
+    }
+
+    // Walks sibling boxes in [start, end); recurses into container boxes; patches
+    // duration fields in mvhd / tkhd / mdhd as it finds them.
+    function walk(start, end, insideTrak) {
+      let offset = start;
+      while (offset + 8 <= end) {
+        let size = view.getUint32(offset);
+        let headerSize = 8;
+        if (size === 1) { // 64-bit extended size
+          const hi = view.getUint32(offset + 8);
+          const lo = view.getUint32(offset + 12);
+          size = hi * 4294967296 + lo;
+          headerSize = 16;
+        }
+        if (size === 0) size = end - offset; // box extends to end of parent
+        if (size < 8 || offset + size > end) break; // malformed / not our container — stop safely
+
+        const type = boxType(offset);
+        const bodyStart = offset + headerSize;
+
+        if (type === 'moov' || type === 'trak' || type === 'mdia') {
+          walk(bodyStart, offset + size, type === 'trak');
+        } else if (type === 'mvhd') {
+          const version = view.getUint8(bodyStart);
+          if (version === 1) {
+            movieTimescale = view.getUint32(bodyStart + 20);
+            const newDur = Math.round(durationSec * movieTimescale);
+            view.setUint32(bodyStart + 24, Math.floor(newDur / 4294967296));
+            view.setUint32(bodyStart + 28, newDur >>> 0);
+          } else {
+            movieTimescale = view.getUint32(bodyStart + 12);
+            const newDur = Math.round(durationSec * movieTimescale);
+            view.setUint32(bodyStart + 16, newDur >>> 0);
+          }
+        } else if (type === 'tkhd' && insideTrak) {
+          // tkhd duration is expressed in the *movie* timescale (from mvhd, read first
+          // since mvhd always precedes trak boxes in a well-formed moov).
+          const version = view.getUint8(bodyStart);
+          const newDur = Math.round(durationSec * movieTimescale);
+          if (version === 1) {
+            view.setUint32(bodyStart + 28, Math.floor(newDur / 4294967296));
+            view.setUint32(bodyStart + 32, newDur >>> 0);
+          } else {
+            view.setUint32(bodyStart + 20, newDur >>> 0);
+          }
+        } else if (type === 'mdhd') {
+          const version = view.getUint8(bodyStart);
+          if (version === 1) {
+            const ts = view.getUint32(bodyStart + 20);
+            const newDur = Math.round(durationSec * ts);
+            view.setUint32(bodyStart + 24, Math.floor(newDur / 4294967296));
+            view.setUint32(bodyStart + 28, newDur >>> 0);
+          } else {
+            const ts = view.getUint32(bodyStart + 12);
+            const newDur = Math.round(durationSec * ts);
+            view.setUint32(bodyStart + 16, newDur >>> 0);
+          }
+        }
+        offset += size;
+      }
+    }
+
+    walk(0, buf.byteLength, false);
+    console.log(`[mp4-duration-fix] Patched mvhd/tkhd/mdhd to ${durationSec.toFixed(2)}s`);
+    return new Blob([buf], { type: blob.type });
+  } catch (e) {
+    console.warn('MP4 duration patch failed, downloading with unfixed duration:', e);
+    return blob;
+  }
+}
+
 async function fixWebmDuration(blob, durationSec) {
   if (!durationSec || durationSec <= 0) return blob;
-  // MP4 recordings don't have this WebM-only metadata problem — leave them alone.
-  if (blob.type && blob.type.includes('mp4')) return blob;
+
+  if (blob.type && blob.type.includes('mp4')) {
+    return fixMp4Duration(blob, durationSec);
+  }
+
   // MediaRecorder writes WebM files with NO duration field at all (not a corrupt
   // one we can patch in place) — that's why players show 0:00. ysFixWebmDuration
   // (loaded via CDN <script> tag above) properly inserts the missing metadata section.
   if (typeof ysFixWebmDuration === 'function') {
     try {
       const durMs = durationSec * 1000;
-      return await new Promise((resolve) => {
-        ysFixWebmDuration(blob, durMs, { logger: false }).then(resolve).catch(() => resolve(blob));
-      });
-    } catch (e) { return blob; }
+      const fixed = await ysFixWebmDuration(blob, durMs, { logger: false });
+      return fixed || blob;
+    } catch (e) {
+      console.warn('ysFixWebmDuration failed, downloading with unfixed duration:', e);
+      return blob;
+    }
   }
+  console.warn('ysFixWebmDuration library not loaded — duration metadata will not be fixed. Check that the CDN script tag loaded successfully (network/ad-blocker?).');
   return blob;
 }
 
