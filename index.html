@@ -1266,6 +1266,7 @@ async function getActiveGroqModels(key) {
       const data = await res.json();
       if (data && Array.isArray(data.data)) {
         const chatModels = data.data
+          .filter(m => m && m.active !== false && !m.id.includes('decommissioned') && !m.id.includes('deprecated') && !m.id.includes('gemma2-9b-it'))
           .map(m => m.id)
           .filter(id => id && !id.includes('whisper') && !id.includes('guard') && !id.includes('vision') && !id.includes('vl') && !id.includes('safeguard'));
         if (chatModels.length > 0) return chatModels;
@@ -1275,13 +1276,13 @@ async function getActiveGroqModels(key) {
     console.warn('Dynamic Groq models list fetch failed:', e);
   }
   return [
-    'openai/gpt-oss-120b',
-    'openai/gpt-oss-20b',
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
-    'llama3-8b-8192',
+    'llama-3.3-70b-specdec',
     'llama-3.2-3b-preview',
-    'gemma2-9b-it'
+    'llama3-70b-8192',
+    'llama3-8b-8192',
+    'mixtral-8x7b-32768',
+    'qwen-2.5-72b-instruct',
+    'deepseek-r1-distill-llama-70b'
   ];
 }
 
