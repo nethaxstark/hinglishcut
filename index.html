@@ -1921,9 +1921,6 @@ async function fixWebmDuration(blob, durationSec) {
   return blob;
 }
 
-// ─────────────────────────────────────────────────────────
-//  EXPORT — VIDEO WITH BURNED-IN SUBTITLES (Canvas + MediaRecorder)
-// ─────────────────────────────────────────────────────────
 async function exportVideo() {
   if (!S.subs.length) { toast('No subtitles to export!', 'warn'); return; }
 
@@ -1939,7 +1936,7 @@ async function exportVideo() {
   const pt  = document.getElementById('exp-txt');
 
   pg.classList.add('show'); pf.style.width = '0%';
-  pt.textContent = 'Preparing video canvas...';
+  pt.textContent = 'Preparing smooth offline video render...';
 
   const W = v.videoWidth  || 1080;
   const H = v.videoHeight || 1920;
@@ -1948,10 +1945,9 @@ async function exportVideo() {
   cv.height = H;
   const ctx = cv.getContext('2d');
 
-  // Pause and seek cleanly to start
   v.pause();
-  v.playbackRate = 1.0;
   v.currentTime = 0;
+
   await new Promise(r => {
     const onSeek = () => { v.removeEventListener('seeked', onSeek); r(); };
     v.addEventListener('seeked', onSeek);
@@ -1964,11 +1960,13 @@ async function exportVideo() {
     else if (v.mozCaptureStream) vStream = v.mozCaptureStream();
   } catch(e) {}
 
-  // 30 FPS standard video encoding prevents CPU overload & stuttering
-  const cvStream = cv.captureStream(30);
-  const tracks   = [...cvStream.getVideoTracks()];
+  // Manual 0 FPS capture stream: requestFrame() controls exact frame timing (no lag, no dropped frames!)
+  const cvStream = cv.captureStream(0);
+  const videoTrack = cvStream.getVideoTracks()[0];
+  const tracks = [videoTrack];
+
   if (vStream && vStream.getAudioTracks && vStream.getAudioTracks().length > 0) {
-    tracks.push(...vStream.getAudioTracks());
+    tracks.push(vStream.getAudioTracks()[0]);
   }
 
   const outStream = new MediaStream(tracks);
@@ -1994,65 +1992,55 @@ async function exportVideo() {
   const chunks = [];
   rec.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
-  pt.textContent = 'Burning Hinglish subtitles into video... Do not close tab.';
+  pt.textContent = 'Rendering 100% Smooth Subtitle Video... Do not close tab.';
 
-  const targetDuration = v.duration || 0;
+  const fps = 30;
+  const frameDuration = 1 / fps;
+  const totalDuration = v.duration || 1;
+  const totalFrames = Math.ceil(totalDuration * fps);
 
-  await new Promise(resolve => {
-    let isRecording = true;
-    let hasStarted = false;
-
+  await new Promise(async (resolve) => {
     rec.onstop = resolve;
     rec.start(100);
 
-    const playP = v.play();
-    if (playP !== undefined) playP.catch(() => {});
+    for (let frame = 0; frame <= totalFrames; frame++) {
+      const curTime = Math.min(totalDuration, frame * frameDuration);
 
-    function renderFrame() {
-      if (!isRecording) return;
+      // Seek video decoder to exact time
+      v.currentTime = curTime;
+      await new Promise(res => {
+        const onSeek = () => { v.removeEventListener('seeked', onSeek); res(); };
+        v.addEventListener('seeked', onSeek);
+        setTimeout(res, 50);
+      });
 
-      if (v.currentTime > 0.1) hasStarted = true;
-
-      // Only stop once video playback actually started AND reached the end
-      if (hasStarted && (v.ended || v.currentTime >= (targetDuration || 9999) - 0.08)) {
-        isRecording = false;
-        if (rec.state !== 'inactive') {
-          try { rec.requestData(); } catch(e) {}
-          rec.stop();
-        }
-        return;
-      }
-
+      // Draw crisp frame to canvas
       ctx.drawImage(v, 0, 0, W, H);
 
-      const ct  = v.currentTime;
-      const sub = S.subs.find(s => ct >= s.start && ct <= s.end);
-      if (sub && sub.text) drawSubCanvas(ctx, sub, ct, W, H);
+      // Render subtitle overlay
+      const sub = S.subs.find(s => curTime >= s.start && curTime <= s.end);
+      if (sub && sub.text) drawSubCanvas(ctx, sub, curTime, W, H);
 
-      const pct = Math.min(100, (v.currentTime / (targetDuration || 1)) * 100);
+      // Tell video track to capture this exact frame
+      if (videoTrack && videoTrack.requestFrame) {
+        videoTrack.requestFrame();
+      }
+
+      // Update UI progress
+      const pct = Math.min(100, (frame / totalFrames) * 100);
       pf.style.width = pct.toFixed(1) + '%';
-      pt.textContent = 'Burning Subtitles: ' + pct.toFixed(0) + '% — do not close tab';
+      pt.textContent = `Rendering Smooth Subtitles: ${pct.toFixed(0)}% (${frame}/${totalFrames} frames)`;
 
-      if ('requestVideoFrameCallback' in v) {
-        v.requestVideoFrameCallback(renderFrame);
-      } else {
-        requestAnimationFrame(renderFrame);
+      // Yield main thread every 3 frames for UI responsiveness
+      if (frame % 3 === 0) {
+        await new Promise(res => setTimeout(res, 1));
       }
     }
 
-    if ('requestVideoFrameCallback' in v) {
-      v.requestVideoFrameCallback(renderFrame);
-    } else {
-      requestAnimationFrame(renderFrame);
+    if (rec.state !== 'inactive') {
+      try { rec.requestData(); } catch(e) {}
+      rec.stop();
     }
-
-    v.addEventListener('ended', () => {
-      isRecording = false;
-      if (rec.state !== 'inactive') {
-        try { rec.requestData(); } catch(e) {}
-        rec.stop();
-      }
-    }, { once: true });
   });
 
   pg.classList.remove('show');
@@ -2063,8 +2051,7 @@ async function exportVideo() {
   const finalType = mime || (isMp4 ? 'video/mp4' : 'video/webm');
   
   let blob = new Blob(chunks, { type: finalType });
-  // Patch EBML duration metadata header so video players show exact timeline duration (e.g. 0:15 / 0:30)
-  blob = await fixWebmDuration(blob, targetDuration);
+  blob = await fixWebmDuration(blob, totalDuration);
 
   dlBlob(blob, 'hinglishcut_video_with_subtitles.' + ext);
   toast(`Export Complete! Downloaded hinglishcut_video_with_subtitles.${ext} (${(blob.size / 1024 / 1024).toFixed(1)} MB) 🎬`, 'ok');
