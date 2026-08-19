@@ -1283,25 +1283,48 @@ ${JSON.stringify(inp, null, 2)}
 Return ONLY a valid JSON array with matching timestamps:
 [{"start":0.0,"end":0.8,"text":"namaste dosto"},{"start":0.8,"end":1.5,"text":"kaise hain aap"},...]`;
 
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.25, max_tokens: 4096,
-    }),
-  });
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({}));
-    if (r.status === 401) throw new Error('Groq key is invalid. Please create a fresh key at console.groq.com');
-    throw new Error(e.error?.message || ('Groq API error ' + r.status));
+  const models = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'llama3-8b-8192',
+    'llama-3.2-3b-preview',
+    'gemma2-9b-it'
+  ];
+
+  let lastError = null;
+
+  for (const model of models) {
+    try {
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.25, max_tokens: 4096,
+        }),
+      });
+
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        if (r.status === 401) throw new Error('Groq key is invalid. Please create a fresh key at console.groq.com');
+        lastError = new Error(e.error?.message || ('Groq API error ' + r.status));
+        console.warn(`Model ${model} failed, trying next fallback model...`);
+        continue;
+      }
+
+      const data = await r.json();
+      const raw  = data.choices[0].message.content.trim();
+      const m    = raw.match(/\[[\s\S]*\]/);
+      if (!m) throw new Error('LLM returned unexpected format. Please try again.');
+      return JSON.parse(m[0]).filter(s => s.text !== undefined);
+    } catch(err) {
+      if (err.message && err.message.includes('Groq key is invalid')) throw err;
+      lastError = err;
+    }
   }
-  const data = await r.json();
-  const raw  = data.choices[0].message.content.trim();
-  const m    = raw.match(/\[[\s\S]*\]/);
-  if (!m) throw new Error('LLM returned unexpected format. Please try again.');
-  return JSON.parse(m[0]).filter(s => s.text !== undefined);
+
+  throw lastError || new Error('All Groq AI models failed. Please verify your Groq API key.');
 }
 
 // ─────────────────────────────────────────────────────────
