@@ -1257,6 +1257,34 @@ async function groqTranscribe(blob, key) {
   return r.json();
 }
 
+async function getActiveGroqModels(key) {
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { 'Authorization': 'Bearer ' + key }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.data)) {
+        const chatModels = data.data
+          .map(m => m.id)
+          .filter(id => id && !id.includes('whisper') && !id.includes('guard') && !id.includes('vision') && !id.includes('vl') && !id.includes('safeguard'));
+        if (chatModels.length > 0) return chatModels;
+      }
+    }
+  } catch(e) {
+    console.warn('Dynamic Groq models list fetch failed:', e);
+  }
+  return [
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'llama3-8b-8192',
+    'llama-3.2-3b-preview',
+    'gemma2-9b-it'
+  ];
+}
+
 async function dsHinglish(chunks, key) {
   if (!chunks || !chunks.length) throw new Error('No speech detected. Try a video with clear Hindi audio.');
 
@@ -1283,13 +1311,8 @@ ${JSON.stringify(inp, null, 2)}
 Return ONLY a valid JSON array with matching timestamps:
 [{"start":0.0,"end":0.8,"text":"namaste dosto"},{"start":0.8,"end":1.5,"text":"kaise hain aap"},...]`;
 
-  const models = [
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
-    'llama3-8b-8192',
-    'llama-3.2-3b-preview',
-    'gemma2-9b-it'
-  ];
+  const models = await getActiveGroqModels(key);
+  console.log('Active Groq chat models discovered for key:', models);
 
   let lastError = null;
 
@@ -1309,7 +1332,7 @@ Return ONLY a valid JSON array with matching timestamps:
         const e = await r.json().catch(() => ({}));
         if (r.status === 401) throw new Error('Groq key is invalid. Please create a fresh key at console.groq.com');
         lastError = new Error(e.error?.message || ('Groq API error ' + r.status));
-        console.warn(`Model ${model} failed, trying next fallback model...`);
+        console.warn(`Model ${model} failed (${r.status}), trying next fallback model...`);
         continue;
       }
 
